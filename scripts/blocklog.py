@@ -74,8 +74,9 @@ def apply_script(protocol, connection, config):
         def on_line_build_attempt(self, points):
             if self.history_mode:
                 return False
-            if connection.on_block_build_attempt(self, points) == False:
-                return False
+            for point in points:
+                if connection.on_block_build_attempt(self, *point) == False:
+                    return False
 
         def on_block_removed(self, x, y, z):
             if self.block_destroy_spade_multiblock:
