@@ -2,7 +2,8 @@
 1) Disables flag capture
 2) Hides tents and intel from the map
 3) Disables grenade damage
-4) Enables teamkill for Blue team and disables all killing for Green team, creating 'PVP' and 'Peace' teams
+4) Infinite blocks
+5) Enables teamkill for Blue team and disables all killing for Green team, creating 'PVP' and 'Peace' teams
 
 Commands
 ^^^^^^^^
@@ -58,6 +59,20 @@ def apply_script(protocol, connection, config):
 ##                team = self.protocol.team_2
 ##            return team
 
+        def on_block_destroy(self, x, y, z, value):
+            if value == 3: # disables grenade damage
+                return False
+            if connection.on_block_destroy(self, x, y, z, value) == False:
+                return False
+
+        def on_block_build(self, x, y, z):
+            self.refill()
+            return connection.on_block_build(self, x, y, z)
+
+        def on_line_build(self, points):
+            self.refill()
+            return connection.on_line_build(self, points)
+
         def on_hit(self, hit_amount, player, _type, grenade):
             if connection.on_hit(self, hit_amount, player, _type, grenade) == False:
                 return False
@@ -65,12 +80,6 @@ def apply_script(protocol, connection, config):
                 if player.team.id == 1:
                     return False
             if self.team.id == 1:
-                return False
-
-        def on_block_destroy(self, x, y, z, value):
-            if value == 3: # disables grenade damage
-                return False
-            if connection.on_block_destroy(self, x, y, z, value) == False:
                 return False
 
     class NoCaptureProtocol(protocol):
