@@ -9,10 +9,7 @@ Commands
 .. codeauthor:: Liza
 """
 
-import random, re
 from piqueserver.commands import command, join_arguments
-from pyspades.common import make_color
-from pyspades.contained import SetColor, ChatMessage
 
 
 @command('a', '/')

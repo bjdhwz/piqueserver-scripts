@@ -15,19 +15,22 @@ Commands
 from datetime import datetime
 import os, sqlite3
 from twisted.internet.task import LoopingCall
-from piqueserver.commands import command
+from piqueserver.commands import command, get_player, target_player
 from piqueserver.config import config
 
 db_path = os.path.join(config.config_dir, 'sqlite.db')
 con = sqlite3.connect(db_path)
 cur = con.cursor()
-cur.execute('CREATE TABLE IF NOT EXISTS wallets(user UNIQUE, balance INTEGER)')
-cur.execute('CREATE TABLE IF NOT EXISTS transactions(id INTEGER PRIMARY KEY, dt, sender, sender_ip, sender_session, receiver, amount, comment, cancelled)')
+cur.execute('CREATE TABLE IF NOT EXISTS wallets(user UNIQUE COLLATE NOCASE, balance INTEGER)')
+cur.execute('CREATE TABLE IF NOT EXISTS transactions(id INTEGER PRIMARY KEY, dt, sender COLLATE NOCASE, sender_ip, sender_session, receiver COLLATE NOCASE, amount, comment, cancelled)')
+con.commit()
+cur.close()
 
 S = '\4'
 
 
 @command()
+@target_player
 def pay(connection, receiver, amount, comment=None):
     """
     Send money to another player
@@ -35,7 +38,9 @@ def pay(connection, receiver, amount, comment=None):
     """
     if not connection.logged_in:
         return "Please log in using /login first"
-    balance = cur.execute('SELECT balance FROM wallets WHERE user = ? COLLATE NOCASE', (connection.name,)).fetchone()
+    cur = con.cursor()
+    balance = cur.execute('SELECT balance FROM wallets WHERE user = ?', (connection.name,)).fetchone()
+    cur.close()
     if not balance:
         return "Not enough money"
     try:
@@ -46,27 +51,29 @@ def pay(connection, receiver, amount, comment=None):
         return "Amount should be > 0"
     if balance[0] < amount:
         return "Not enough money"
-    if connection.name.lower() == receiver.lower():
+    if connection.name.lower() == receiver.name.lower():
         return "Enter the name of the player you want to send money to"
 
+    cur = con.cursor()
     cur.execute('INSERT INTO transactions(dt, sender, sender_ip, sender_session, receiver, amount, comment, cancelled) VALUES(?, ?, ?, ?, ?, ?, ?, ?)', (
         datetime.now().isoformat(sep=' ')[:16],
         connection.name,
         connection.address[0],
         connection.session,
-        receiver,
+        receiver.name,
         amount,
         comment,
         False))
-    cur.execute('UPDATE wallets SET balance = balance - ? WHERE user = ? COLLATE NOCASE', (amount, connection.name))
-    cur.execute('INSERT INTO wallets(user, balance) VALUES(?, ?) ON CONFLICT(user) DO UPDATE SET balance = balance + excluded.balance COLLATE NOCASE', (receiver, amount))
+    cur.execute('UPDATE wallets SET balance = balance - ? WHERE user = ?', (amount, connection.name))
+    cur.execute('INSERT INTO wallets(user, balance) VALUES(?, ?) ON CONFLICT(user) DO UPDATE SET balance = balance + excluded.balance', (receiver.name, amount))
     con.commit()
+    cur.close()
     if comment:
         comment = ' "' + comment + '"'
     else:
         comment = ''
-    connection.protocol.notify_player("%s sent you %s%s%s" % (connection.name, amount, S, comment), receiver)
-    connection.protocol.notify_admins("%s sent %s%s to %s%s" % (connection.name, amount, S, receiver, comment))
+    connection.protocol.notify_player("%s sent you %s%s%s" % (connection.name, amount, S, comment), receiver.name)
+    connection.protocol.notify_admins("%s sent %s%s to %s%s" % (connection.name, amount, S, receiver.name, comment))
     return "Money have been sent"
 
 @command('balance', 'bal', 'money')
@@ -77,10 +84,12 @@ def balance(connection, player=None):
     """
     if not player:
         player = connection.name
-    balance = cur.execute('SELECT balance FROM wallets WHERE user = ? COLLATE NOCASE', (player,)).fetchone()
+    cur = con.cursor()
+    balance = cur.execute('SELECT user, balance FROM wallets WHERE user LIKE ?', ('%'+player+'%',)).fetchone()
+    cur.close()
     if not balance:
-        balance = 0
-    return "%s's balance is %s%s" % (player, balance[0], S)
+        balance = (player, '0')
+    return "%s's balance is %s%s" % (balance[0], balance[1], S)
 
 @command('balancetop', 'baltop', 'moneytop')
 def balancetop(connection):
@@ -88,7 +97,9 @@ def balancetop(connection):
     Show the richest players
     /balancetop
     """
+    cur = con.cursor()
     top = cur.execute('SELECT user, balance FROM wallets ORDER BY balance DESC LIMIT 5').fetchall()
+    cur.close()
     return '\n'.join(["%s%s%s" % (x[0].ljust(16), x[1], S) for x in top])
 
 @command()
@@ -104,12 +115,14 @@ def transactions(connection, player=None):
             return "Can't show transactions of other players"
     else:
         player = connection.name
-    log = cur.execute('SELECT id, dt, sender, sender_ip, sender_session, receiver, amount, comment, cancelled FROM transactions WHERE sender = ? OR receiver = ? ORDER BY id DESC LIMIT 5 COLLATE NOCASE', (player, player)).fetchall()
-    if log:
+    cur = con.cursor()
+    records = cur.execute('SELECT id, dt, sender, sender_ip, sender_session, receiver, amount, comment, cancelled FROM transactions WHERE sender = ? OR receiver = ? ORDER BY id DESC LIMIT 5', (player, player)).fetchall()
+    cur.close()
+    if records:
         if connection.admin:
-            return '\n'.join(' '.join(log))
+            return '\n'.join(' '.join(records))
         else:
-            return '\n'.join(["%s %s %s %s %s %s %s" % (x[0], x[1], x[2], x[5], x[6], x[7], x[8]) for x in log])
+            return '\n'.join(["%s %s %s %s %s %s %s" % (x[0], x[1], x[2], x[5], x[6], x[7], x[8]) for x in records])
     else:
         return "No transactions for %s" % player
 
@@ -119,9 +132,11 @@ def alltransactions(connection):
     Show all recent transactions
     /alltransactions
     """
-    log = cur.execute('SELECT id, dt, sender, sender_ip, sender_session, receiver, amount, comment, cancelled FROM transactions ORDER BY id DESC LIMIT 5').fetchall()
-    if log:
-        return '\n'.join(' '.join(log))
+    cur = con.cursor()
+    records = cur.execute('SELECT id, dt, sender, sender_ip, sender_session, receiver, amount, comment, cancelled FROM transactions ORDER BY id DESC LIMIT 5').fetchall()
+    cur.close()
+    if records:
+        return '\n'.join(' '.join(records))
     else:
         return "No transactions yet"
 
@@ -131,8 +146,10 @@ def transaction(connection, transaction_id):
     Show details about transaction
     /transaction <id>
     """
-    log = cur.execute('SELECT * FROM transactions WHERE id = ?', (transaction_id)).fetchone()
-    return ' '.join(log)
+    cur = con.cursor()
+    records = cur.execute('SELECT * FROM transactions WHERE id = ?', (transaction_id)).fetchone()
+    cur.close()
+    return ' '.join(records)
 
 @command(admin_only=True)
 def refund(connection, transaction_id):
@@ -140,13 +157,16 @@ def refund(connection, transaction_id):
     Cancel transaction and refund sender
     /refund <id>
     """
+    cur = con.cursor()
     if cur.execute('SELECT sender, receiver, amount FROM transactions WHERE id = ?', (transaction_id)).fetchone()[0]:
-        cur.execute('UPDATE transactions SET cancelled = ? WHERE id = ? COLLATE NOCASE', (datetime.now().isoformat(sep=' ')[:16], transaction_id))
-        cur.execute('UPDATE wallets SET balance = balance + ? WHERE user = ? COLLATE NOCASE', (amount, sender))
-        cur.execute('UPDATE wallets SET balance = balance - ? WHERE user = ? COLLATE NOCASE', (amount, receiver))
+        cur.execute('UPDATE transactions SET cancelled = ? WHERE id = ?', (datetime.now().isoformat(sep=' ')[:16], transaction_id))
+        cur.execute('UPDATE wallets SET balance = balance + ? WHERE user = ?', (amount, sender))
+        cur.execute('UPDATE wallets SET balance = balance - ? WHERE user = ?', (amount, receiver))
         con.commit()
+        cur.close()
         return "Transaction cancelled, %s%s returned to %s from %s" % (amount, S, sender, receiver)
     else:
+        cur.close()
         return "No transaction with id %s" % transaction_id
 
 
@@ -162,8 +182,10 @@ def apply_script(protocol, connection, config):
             if datetime.now().minute == 0:
                 amount = len(self.players.values())
                 for player in self.players.values():
-                    cur.execute('INSERT INTO wallets(user, balance) VALUES(?, ?) ON CONFLICT(user) DO UPDATE SET balance = balance + excluded.balance COLLATE NOCASE', (player.name, amount))
+                    cur = con.cursor()
+                    cur.execute('INSERT INTO wallets(user, balance) VALUES(?, ?) ON CONFLICT(user) DO UPDATE SET balance = balance + excluded.balance', (player.name, amount))
+                    con.commit()
+                    cur.close()
                     player.send_chat("%s%s have been added to your account. Use /balance to check your balance" % (amount, S))
-                con.commit()
 
     return EconomyProtocol, connection

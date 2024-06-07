@@ -3,7 +3,8 @@
 2) Hides tents and intel from the map
 3) Disables grenade damage
 4) Infinite blocks
-5) Enables teamkill for Blue team and disables all killing for Green team, creating 'PVP' and 'Peace' teams
+5) Fast travel command
+6) Enables teamkill for Blue team and disables all killing for Green team, creating 'PVP' and 'Peace' teams
 
 Commands
 ^^^^^^^^
@@ -14,9 +15,53 @@ Commands
 """
 
 from piqueserver.commands import command
+from pyspades.common import coordinates
 
 HIDE_POS = (-256, -256, 63)
 
+
+def do_move(connection, sector, silent=False):
+    x, y = coordinates(sector)
+    x += 32
+    y += 32
+    z = connection.protocol.map.get_height(x, y) - 2
+    connection.set_location((x, y, z))
+    if not silent:
+        connection.protocol.broadcast_chat('%s teleported to %s' % (connection.name, sector))
+
+@command()
+def gt(connection, sector):
+    """
+    Teleport to a sector
+    /gt <sector>
+    """
+    ALL_SECTORS = [chr(x // 8 + ord('A')) + str(x % 8 + 1) for x in range(64)]
+    sector = sector.upper()
+    if sector not in ALL_SECTORS:
+        return "Invalid sector. Example of a sector: A1"
+    do_move(connection, sector)
+
+@command(admin_only=True)
+def gts(connection, sector):
+    """
+    Teleport to a sector silently
+    /gts <sector>
+    """
+    ALL_SECTORS = [chr(x // 8 + ord('A')) + str(x % 8 + 1) for x in range(64)]
+    sector = sector.upper()
+    if sector not in ALL_SECTORS:
+        return "Invalid sector. Example of a sector: A1"
+    do_move(connection, sector, True)
+
+@command('f')
+def fly_shortcut(connection):
+    """
+    Enable flight
+    /f
+    """
+    connection.fly = not connection.fly
+    message = 'now flying' if connection.fly else 'no longer flying'
+    connection.send_chat("You're %s" % message)
 
 @command(admin_only=True)
 def flag(connection, team, hide=False):
@@ -67,11 +112,13 @@ def apply_script(protocol, connection, config):
 
         def on_block_build(self, x, y, z):
             self.refill()
-            return connection.on_block_build(self, x, y, z)
+            if connection.on_block_build(self, x, y, z) == False:
+                return False
 
         def on_line_build(self, points):
             self.refill()
-            return connection.on_line_build(self, points)
+            if connection.on_line_build(self, points) == False:
+                return False
 
         def on_hit(self, hit_amount, player, _type, grenade):
             if connection.on_hit(self, hit_amount, player, _type, grenade) == False:

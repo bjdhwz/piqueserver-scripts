@@ -43,7 +43,7 @@ def setcolor(connection, *args):
     set_color.value = make_color(*rgb)
     set_color.player_id = connection.player_id
     connection.protocol.broadcast_contained(set_color)
-    return ''
+    connection.color = rgb
 
 
 def apply_script(protocol, connection, config):

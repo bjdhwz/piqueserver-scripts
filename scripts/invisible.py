@@ -6,6 +6,7 @@ Commands
 
 * ``/invisible [player]``
 """
+
 from pyspades.contained import CreatePlayer, SetTool, KillAction, InputData, SetColor, WeaponInput
 from piqueserver.commands import command, target_player
 

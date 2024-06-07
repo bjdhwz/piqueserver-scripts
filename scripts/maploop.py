@@ -8,7 +8,6 @@ from twisted.internet.task import LoopingCall
 
 
 def apply_script(protocol, connection, config):
-
     class MapLoopConnection(connection):
         map_loop = None
         map_loop_timeout = 0
@@ -53,7 +52,10 @@ def apply_script(protocol, connection, config):
             return connection.on_spawn(self, pos)
 
         def on_disconnect(self):
-            self.map_loop.stop()
+            try: # might already not exist when called
+                self.map_loop.stop()
+            except:
+                pass
             return connection.on_disconnect(self)
 
     return protocol, MapLoopConnection

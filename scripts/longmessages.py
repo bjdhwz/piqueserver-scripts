@@ -3,6 +3,7 @@ Increases max chat message length and automatically wraps it if it doesn't fit i
 
 .. codeauthor:: Liza
 """
+
 import shlex, textwrap
 from twisted.logger import Logger
 from typing import Dict, Optional, Sequence, Tuple

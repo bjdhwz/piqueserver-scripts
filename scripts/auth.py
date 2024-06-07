@@ -20,7 +20,9 @@ from piqueserver.config import config
 db_path = os.path.join(config.config_dir, 'sqlite.db')
 con = sqlite3.connect(db_path)
 cur = con.cursor()
-cur.execute('CREATE TABLE IF NOT EXISTS users(user, password, user_type, reg_dt, reg_session)')
+cur.execute('CREATE TABLE IF NOT EXISTS users(user COLLATE NOCASE, password, user_type, reg_dt, reg_session)')
+con.commit()
+cur.close()
 
 
 def hashstr(s):
@@ -34,17 +36,21 @@ def register(connection, password, password_repeat):
     Register on the server
     /reg <password> <repeat password>
     """
-    q = cur.execute('SELECT user FROM users WHERE user = ? COLLATE NOCASE', (connection.name,)).fetchone()
-    if q:
-        return "Name %s is already registered. If it wasn't you, please pick a different name" % q[0]
+    cur = con.cursor()
+    res = cur.execute('SELECT user FROM users WHERE user = ?', (connection.name,)).fetchone()
+    cur.close()
+    if res:
+        return "Name %s is already registered. If it wasn't you, please pick a different name" % res[0]
     if password != password_repeat:
         return "Passwords don't match, please try again"
+    cur = con.cursor()
     is_not_empty = cur.execute('SELECT EXISTS (SELECT 1 FROM users)').fetchone()[0]
     if is_not_empty:
         cur.execute('INSERT INTO users VALUES(?, ?, ?, ?, ?)', (connection.name, hashstr(password), 'player', datetime.now().isoformat(sep=' ')[:16], connection.session))
     else:
         cur.execute('INSERT INTO users VALUES(?, ?, ?, ?, ?)', (connection.name, hashstr(password), 'admin', datetime.now().isoformat(sep=' ')[:16], connection.session))
     con.commit()
+    cur.close()
     connection.protocol.notify_admins("%s registered successfully" % connection.name)
     return "Registration successful. Use /login <password> to log in"
 
@@ -57,12 +63,16 @@ def login(connection, password):
     if connection.logged_in:
         return "You're already logged in"
     else:
-        q = cur.execute('SELECT password, user_type FROM users WHERE user = ? COLLATE NOCASE', (connection.name,)).fetchone()
-        if q:
-            password_hash, user_type = q
+        cur = con.cursor()
+        res = cur.execute('SELECT password, user_type FROM users WHERE user = ?', (connection.name,)).fetchone()
+        cur.close()
+        if res:
+            password_hash, user_type = res
             if hashstr(password) == password_hash:
+                cur = con.cursor()
                 cur.execute('UPDATE sessions SET logged_in = ? WHERE id = ?', (True, connection.session))
                 con.commit()
+                cur.close()
                 connection.logged_in = True
                 if user_type:
                     connection.on_user_login(user_type, True)
@@ -92,15 +102,19 @@ def group(connection, player=None, user_type=None):
     """
     if not player:
         player = connection.name
-    q = cur.execute('SELECT user, user_type, reg_dt, reg_session FROM users WHERE user = ? COLLATE NOCASE', (player,)).fetchone()
-    if q:
+    cur = con.cursor()
+    res = cur.execute('SELECT user, user_type, reg_dt, reg_session FROM users WHERE user = ?', (player,)).fetchone()
+    cur.close()
+    if res:
         if user_type:
-            cur.execute('UPDATE users SET user_type = ? WHERE user = ? COLLATE NOCASE', (user_type, player))
+            cur = con.cursor()
+            cur.execute('UPDATE users SET user_type = ? WHERE user = ?', (user_type, player))
             con.commit()
+            cur.close()
             connection.protocol.notify_admins("%s changed %s's user_type to %s" % (connection.name, player, user_type))
             return "Account has been modified"
         else:
-            user, user_type, reg_dt, reg_session = q
+            user, user_type, reg_dt, reg_session = res
             return "%s | group: %s | registered %s session ID%s" % (user, user_type, reg_dt, reg_session)
     else:
         return "Account not found"
@@ -111,12 +125,15 @@ def unregister(connection, player):
     Removes player's account, letting them register again
     /unreg <player>
     """
-    if cur.execute('SELECT user FROM users WHERE user = ? COLLATE NOCASE', (player,)).fetchone():
-        cur.execute('DELETE FROM users WHERE user = ? COLLATE NOCASE', (player,))
+    cur = con.cursor()
+    if cur.execute('SELECT user FROM users WHERE user = ?', (player,)).fetchone():
+        cur.execute('DELETE FROM users WHERE user = ?', (player,))
         con.commit()
+        cur.close()
         connection.protocol.notify_admins("%s removed %s's account" % (connection.name, player))
         return "Account has been removed"
     else:
+        cur.close()
         return "Account not found"
 
 
@@ -131,22 +148,24 @@ def apply_script(protocol, connection, config):
         def notify_admins(self, msg):
             for player in self.players.values():
                 if player.admin:
-                    player.send_chat('[ADMIN] ' + msg)
+                    player.send_chat('[Admin] ' + msg)
 
     class AuthConnection(connection):
-        connection.logged_in = False
+        logged_in = False
 
         def on_login(self, name):
             connection.on_login(self, name)
-            q = cur.execute('SELECT ip, logged_in FROM sessions WHERE user = ? ORDER BY id DESC LIMIT 1, 1 COLLATE NOCASE', (self.name,)).fetchone()
-            if q:
-                last_ip, logged_in = q
+            cur = con.cursor()
+            res = cur.execute('SELECT ip, logged_in FROM sessions WHERE user = ? ORDER BY id DESC LIMIT 1, 1', (self.name,)).fetchone()
+            if res:
+                last_ip, logged_in = res
                 if last_ip == self.address[0] and logged_in == True:
                     self.logged_in = True
-                    user_type = cur.execute('SELECT user_type FROM users WHERE user = ? COLLATE NOCASE', (self.name,)).fetchone()
+                    user_type = cur.execute('SELECT user_type FROM users WHERE user = ?', (self.name,)).fetchone()
                     if user_type:
                         self.on_user_login(user_type[0], True)
                     cur.execute('UPDATE sessions SET logged_in = ? WHERE id = ?', (True, self.session))
                     con.commit()
+            cur.close()
 
     return AuthProtocol, AuthConnection

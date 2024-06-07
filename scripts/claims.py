@@ -7,15 +7,15 @@ Lets registered players claim 64x64 sectors of the map and share them with other
 from datetime import datetime
 import os, sqlite3
 from twisted.internet.task import LoopingCall
-from piqueserver.commands import command, get_player, restrict
+from piqueserver.commands import command, get_player
 from piqueserver.config import config
 from pyspades.common import escape_control_codes, coordinates
 
 db_path = os.path.join(config.config_dir, 'sqlite.db')
 con = sqlite3.connect(db_path)
 cur = con.cursor()
-cur.execute('CREATE TABLE IF NOT EXISTS claims(sector, owner, dt, name)')
-cur.execute('CREATE TABLE IF NOT EXISTS shared(sector, player, dt)')
+cur.execute('CREATE TABLE IF NOT EXISTS claims(sector, owner COLLATE NOCASE, dt, name)')
+cur.execute('CREATE TABLE IF NOT EXISTS shared(sector, player COLLATE NOCASE, dt)')
 
 SECTORS_PER_PLAYER = 9
 
@@ -26,7 +26,7 @@ def get_sector(x, y):
     return chr(int(x // 64) + ord('A')) + str(int(y) // 64 + 1)
 
 def claimed_by(sector, name=None):
-    query = cur.execute('SELECT sector, owner FROM claims WHERE sector = ? COLLATE NOCASE', (sector,)).fetchone()
+    query = cur.execute('SELECT sector, owner FROM claims WHERE sector = ?', (sector,)).fetchone()
     if query:
         sector, owner = query
         if owner:
@@ -56,7 +56,7 @@ def claim(connection, sector):
     elif owner == None:
         return "Sector %s is reserved and can't be claimed" % sector
     else:
-        owned_by_player = cur.execute('SELECT sector FROM claims WHERE owner = ? COLLATE NOCASE', (connection.name,)).fetchall()
+        owned_by_player = cur.execute('SELECT sector FROM claims WHERE owner = ?', (connection.name,)).fetchall()
         if owned_by_player:
             if len(owned_by_player) >= SECTORS_PER_PLAYER:
                 return "You've reached the limit of claimed sectors. To claim another sector, you have to /unclaim one of your sectors first"
@@ -87,7 +87,7 @@ def sector(connection, sector=None, player=None):
         return "Sector %s is reserved" % sector
     if owner == True:
         owner = connection.name
-    dt = cur.execute('SELECT dt FROM claims WHERE sector = ? COLLATE NOCASE', (sector,)).fetchone()[0]
+    dt = cur.execute('SELECT dt FROM claims WHERE sector = ?', (sector,)).fetchone()[0]
     shared = cur.execute('SELECT player FROM shared WHERE sector = ?', (sector,)).fetchall()
     if shared:
         return "Sector %s is claimed by %s since %s and shared with: %s" % (sector, owner, dt[:10], ', '.join([x[0] for x in shared]))
@@ -147,7 +147,7 @@ def unclaim(connection, sector):
 
     owner = claimed_by(sector, connection.name)
     if owner.lower() == True or connection.admin:
-        cur.execute('DELETE FROM claims WHERE owner = ? COLLATE NOCASE', (vv,))
+        cur.execute('DELETE FROM claims WHERE owner = ?', (vv,))
         cur.execute('DELETE FROM shared WHERE sector = ?', (sector,))
         con.commit()
         return "Sector %s has been unclaimed" % sector
@@ -173,7 +173,7 @@ def share(connection, sector, player):
     if connection.name.lower() == player.lower():
         return "Enter the name of the player you want to let to build in that sector"
 
-    if cur.execute('SELECT player FROM shared WHERE sector = ? AND player = ? COLLATE NOCASE', (sector, player)).fetchone():
+    if cur.execute('SELECT player FROM shared WHERE sector = ? AND player = ?', (sector, player)).fetchone():
         return "You've already shared that sector with this player. They have to /login to build"
 
     players_db = [x[0].lower() for x in cur.execute('SELECT user FROM users').fetchall()]
@@ -213,7 +213,7 @@ def unshare(connection, sector, player):
     if connection.name.lower() == player.lower():
         return "Enter the name of the player"
 
-    if not cur.execute('SELECT player FROM shared WHERE sector = ? AND player = ? COLLATE NOCASE', (sector, player)).fetchone():
+    if not cur.execute('SELECT player FROM shared WHERE sector = ? AND player = ?', (sector, player)).fetchone():
         return "This player has no access to sector"
 
     players_online = [x.name.lower() for x in connection.protocol.players.values()]
@@ -221,7 +221,7 @@ def unshare(connection, sector, player):
         p = get_player(connection.protocol, player)
         p.shared_sectors = [x for x in p.shared_sectors if x != sector]
 
-    cur.execute('DELETE FROM shared WHERE sector = ? AND player = ? COLLATE NOCASE', (sector, player))
+    cur.execute('DELETE FROM shared WHERE sector = ? AND player = ?', (sector, player))
     con.commit()
 
     connection.protocol.notify_player("You can no longer build in %s" % sector, player)
