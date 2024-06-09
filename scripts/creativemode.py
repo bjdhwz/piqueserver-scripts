@@ -60,7 +60,7 @@ def fly_shortcut(connection):
     /f
     """
     if connection.team == connection.protocol.team_1:
-        return 'Fly not available in PvP team'
+        return 'Fly not available in PVP team'
     else:
         connection.fly = not connection.fly
         message = 'now flying' if connection.fly else 'no longer flying'
@@ -104,9 +104,9 @@ def apply_script(protocol, connection, config):
 
         def on_team_join(self, team):
             if team == self.protocol.team_1:
-                if connection.fly:
-                    connection.fly = False
-                    connection.send_chat("You're no longer flying")
+                if self.fly:
+                    self.fly = False
+                    self.send_chat("You're no longer flying")
             return team
 
         def on_block_destroy(self, x, y, z, value):
