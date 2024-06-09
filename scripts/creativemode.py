@@ -29,7 +29,7 @@ def do_move(connection, sector, silent=False):
     if not silent:
         connection.protocol.broadcast_chat('%s teleported to %s' % (connection.name, sector))
 
-@command()
+@command('gt', 'goto')
 def gt(connection, sector):
     """
     Teleport to a sector
@@ -41,7 +41,7 @@ def gt(connection, sector):
         return "Invalid sector. Example of a sector: A1"
     do_move(connection, sector)
 
-@command(admin_only=True)
+@command('gts', admin_only=True)
 def gts(connection, sector):
     """
     Teleport to a sector silently
@@ -53,15 +53,18 @@ def gts(connection, sector):
         return "Invalid sector. Example of a sector: A1"
     do_move(connection, sector, True)
 
-@command('f')
+@command('f', 'fly')
 def fly_shortcut(connection):
     """
     Enable flight
     /f
     """
-    connection.fly = not connection.fly
-    message = 'now flying' if connection.fly else 'no longer flying'
-    connection.send_chat("You're %s" % message)
+    if connection.team == connection.protocol.team_1:
+        return 'Fly not available in PvP team'
+    else:
+        connection.fly = not connection.fly
+        message = 'now flying' if connection.fly else 'no longer flying'
+        connection.send_chat("You're %s" % message)
 
 @command(admin_only=True)
 def flag(connection, team, hide=False):
@@ -99,10 +102,12 @@ def apply_script(protocol, connection, config):
         def capture_flag(self):
             return False
 
-##        def on_team_join(self, team): # all players in a single team
-##            if team == self.protocol.team_1:
-##                team = self.protocol.team_2
-##            return team
+        def on_team_join(self, team):
+            if team == self.protocol.team_1:
+                if connection.fly:
+                    connection.fly = False
+                    connection.send_chat("You're no longer flying")
+            return team
 
         def on_block_destroy(self, x, y, z, value):
             if value == 3: # disables grenade damage

@@ -15,7 +15,17 @@ db_path = os.path.join(config.config_dir, 'sqlite.db')
 con = sqlite3.connect(db_path)
 cur = con.cursor()
 cur.execute('CREATE TABLE IF NOT EXISTS claims(sector, owner COLLATE NOCASE, dt, name)')
+cur.execute('CREATE TABLE claims_tmp(sector, owner COLLATE NOCASE, dt, name)')
+cur.execute('INSERT INTO claims_tmp(sector, owner, dt, name) SELECT sector, owner, dt, name FROM claims')
+cur.execute('DROP TABLE claims')
+cur.execute('ALTER TABLE claims_tmp RENAME TO claims')
 cur.execute('CREATE TABLE IF NOT EXISTS shared(sector, player COLLATE NOCASE, dt)')
+cur.execute('CREATE TABLE shared_tmp(sector, player COLLATE NOCASE, dt)')
+cur.execute('INSERT INTO shared_tmp(sector, player, dt) SELECT sector, player, dt FROM shared')
+cur.execute('DROP TABLE shared')
+cur.execute('ALTER TABLE shared_tmp RENAME TO shared')
+con.commit()
+cur.close()
 
 SECTORS_PER_PLAYER = 9
 
@@ -26,7 +36,9 @@ def get_sector(x, y):
     return chr(int(x // 64) + ord('A')) + str(int(y) // 64 + 1)
 
 def claimed_by(sector, name=None):
+    cur = con.cursor()
     query = cur.execute('SELECT sector, owner FROM claims WHERE sector = ?', (sector,)).fetchone()
+    cur.close()
     if query:
         sector, owner = query
         if owner:
@@ -56,17 +68,21 @@ def claim(connection, sector):
     elif owner == None:
         return "Sector %s is reserved and can't be claimed" % sector
     else:
+        cur = con.cursor()
         owned_by_player = cur.execute('SELECT sector FROM claims WHERE owner = ?', (connection.name,)).fetchall()
+        cur.close()
         if owned_by_player:
             if len(owned_by_player) >= SECTORS_PER_PLAYER:
                 return "You've reached the limit of claimed sectors. To claim another sector, you have to /unclaim one of your sectors first"
+        cur = con.cursor()
         cur.execute('INSERT INTO claims(sector, owner, dt) VALUES(?, ?, ?)', (sector, connection.name, datetime.now().isoformat(sep=' ')[:16]))
         con.commit()
+        cur.close()
         connection.protocol.notify_admins("%s claimed %s" % (connection.name, sector))
         return "Sector %s now belongs to you. Use /share to let other players build with you" % sector
 
 @command()
-def sector(connection, sector=None, player=None):
+def sector(connection, sector=None):
     """
     Get sector info
     /sector <sector>
@@ -87,15 +103,17 @@ def sector(connection, sector=None, player=None):
         return "Sector %s is reserved" % sector
     if owner == True:
         owner = connection.name
+    cur = con.cursor()
     dt = cur.execute('SELECT dt FROM claims WHERE sector = ?', (sector,)).fetchone()[0]
     shared = cur.execute('SELECT player FROM shared WHERE sector = ?', (sector,)).fetchall()
+    cur.close()
     if shared:
         return "Sector %s is claimed by %s since %s and shared with: %s" % (sector, owner, dt[:10], ', '.join([x[0] for x in shared]))
     else:
         return "Sector %s is claimed by %s since %s" % (sector, owner, dt[:10])
 
 @command()
-def title(connection, sector, name=None):
+def title(connection, sector, *name):
     """
     Add a name to sector that will be displayed as greeting message. Leave empty to remove the name
     /title <sector> <name>
@@ -110,11 +128,13 @@ def title(connection, sector, name=None):
     owner = claimed_by(sector, connection.name)
     if owner == True or connection.admin:
         if name:
-            name = escape_control_codes(name[:80])
+            name = escape_control_codes(' '.join(name[:80]))[:80]
         else:
             name = ''
+        cur = con.cursor()
         cur.execute('UPDATE claims SET name = ? WHERE sector = ?', (name, sector))
         con.commit()
+        cur.close()
         connection.protocol.notify_admins("%s named %s \"%s\"" % (connection.name, sector, name))
         if name:
             return "Claim is now named %s" % name
@@ -123,13 +143,26 @@ def title(connection, sector, name=None):
     return "You can only name your claims"
 
 @command()
+def claimed(connection):
+    """
+    List claimed sectors
+    /claimed
+    """
+    cur = con.cursor()
+    claimed_sectors = [x[0] + (' <' + x[1] + '>' if x[1] else ' [reserved]') for x in cur.execute('SELECT sector, owner FROM claims').fetchall()]
+    cur.close()
+    return ', '.join(claimed_sectors)
+
+@command()
 def unclaimed(connection):
     """
     List unclaimed sectors
     /unclaimed
     """
+    cur = con.cursor()
     claimed_sectors = [x[0] for x in cur.execute('SELECT sector FROM claims').fetchall()]
     unclaimed_sectors = [x for x in ALL_SECTORS if x not in claimed_sectors]
+    cur.close()
     return ', '.join(unclaimed_sectors)
 
 @command()
@@ -146,10 +179,13 @@ def unclaim(connection, sector):
         return "Invalid sector. Example of a sector: A1"
 
     owner = claimed_by(sector, connection.name)
-    if owner.lower() == True or connection.admin:
-        cur.execute('DELETE FROM claims WHERE owner = ?', (vv,))
+    if owner == True or connection.admin:
+        cur = con.cursor()
+        cur.execute('DELETE FROM claims WHERE sector = ?', (sector,))
         cur.execute('DELETE FROM shared WHERE sector = ?', (sector,))
         con.commit()
+        cur.close()
+        connection.protocol.notify_admins("Sector %s has been unclaimed by %s" % (sector, connection.name))
         return "Sector %s has been unclaimed" % sector
     return "You can only unclaim your sectors"
 
@@ -173,15 +209,22 @@ def share(connection, sector, player):
     if connection.name.lower() == player.lower():
         return "Enter the name of the player you want to let to build in that sector"
 
+    cur = con.cursor()
     if cur.execute('SELECT player FROM shared WHERE sector = ? AND player = ?', (sector, player)).fetchone():
+        cur.close()
         return "You've already shared that sector with this player. They have to /login to build"
+    cur.close()
 
+    cur = con.cursor()
     players_db = [x[0].lower() for x in cur.execute('SELECT user FROM users').fetchall()]
     players_online = [x.name.lower() for x in connection.protocol.players.values()]
+    cur.close()
 
     if player.lower() in players_db:
+        cur = con.cursor()
         cur.execute('INSERT INTO shared(sector, player, dt) VALUES(?, ?, ?)', (sector, player, datetime.now().isoformat(sep=' ')[:16]))
         con.commit()
+        cur.close()
         if not get_player(connection.protocol, player).logged_in:
             connection.protocol.notify_player("Please /login to build there", player)
     elif player.lower() in players_online:
@@ -213,16 +256,21 @@ def unshare(connection, sector, player):
     if connection.name.lower() == player.lower():
         return "Enter the name of the player"
 
+    cur = con.cursor()
     if not cur.execute('SELECT player FROM shared WHERE sector = ? AND player = ?', (sector, player)).fetchone():
+        cur.close()
         return "This player has no access to sector"
+    cur.close()
 
     players_online = [x.name.lower() for x in connection.protocol.players.values()]
     if player.lower() in players_online:
         p = get_player(connection.protocol, player)
         p.shared_sectors = [x for x in p.shared_sectors if x != sector]
 
+    cur = con.cursor()
     cur.execute('DELETE FROM shared WHERE sector = ? AND player = ?', (sector, player))
     con.commit()
+    cur.close()
 
     connection.protocol.notify_player("You can no longer build in %s" % sector, player)
     connection.protocol.notify_admins("%s unshared %s for %s" % (connection.name, sector, player))
@@ -240,28 +288,22 @@ def reserve(connection, sector):
 
     owner = claimed_by(sector)
     if owner:
+        cur = con.cursor()
         cur.execute('UPDATE claims SET owner = ? WHERE sector = ?', (None, sector))
         cur.execute('INSERT INTO shared(sector, player, dt) VALUES(?, ?, ?)', (sector, owner, datetime.now().isoformat(sep=' ')[:16]))
         con.commit()
+        cur.close()
+        connection.protocol.notify_admins("Sector %s has been reserved by %s" % (sector, connection.name))
         return "Sector %s has been reserved" % sector
     elif owner == False:
+        cur = con.cursor()
         cur.execute('INSERT INTO claims(sector, owner, dt) VALUES(?, ?, ?)', (sector, None, datetime.now().isoformat(sep=' ')[:16]))
         con.commit()
+        cur.close()
+        connection.protocol.notify_admins("Sector %s has been reserved by %s" % (sector, connection.name))
         return "Sector %s has been reserved" % sector
     elif owner == None:
         return "Sector %s is already reserved" % sector
-
-@command(admin_only=True)
-def bypass(connection):
-    """
-    Bypass protection
-    /bypass
-    """
-    connection.bypass = not connection.bypass
-    if connection.bypass:
-        connection.protocol.notify_admins("%s enabled bypass mode" % connection.name)
-    else:
-        connection.protocol.notify_admins("%s disabled bypass mode" % connection.name)
 
 
 def apply_script(protocol, connection, config):
@@ -278,18 +320,24 @@ def apply_script(protocol, connection, config):
                     return
                 x, y, z = player.get_location()
                 if player.current_sector != get_sector(x, y):
+                    cur = con.cursor()
                     name = cur.execute('SELECT name FROM claims WHERE sector = ?', (get_sector(x, y),)).fetchone()
+                    cur.close()
                     if name:
                         if name[0]:
                             player.send_chat("Welcome to %s" % name[0])
                     player.current_sector = get_sector(x, y)
 
         def is_claimed(self, x, y, z):
+            cur = con.cursor()
             claimed = cur.execute('SELECT sector, owner FROM claims').fetchall()
+            cur.close()
             for sector, owner in claimed:
                 sx, sy = coordinates(sector)
                 if x >= sx and y >= sy and x < sx + 64 and y < sy + 64:
+                    cur = con.cursor()
                     shared = cur.execute('SELECT player FROM shared WHERE sector = ?', (sector,)).fetchall()
+                    cur.close()
                     if shared:
                         shared = [x[0] for x in shared]
                     owners = [owner] + shared
@@ -299,24 +347,23 @@ def apply_script(protocol, connection, config):
     class ClaimsConnection(connection):
         current_sector = None
         shared_sectors = []
-        connection.bypass = False
 
         def can_build(self, x, y, z):
             owners = self.protocol.is_claimed(x, y, z)
+            if self.god:
+                return True
             if owners:
                 if self.logged_in:
                     if self.name.lower() in [x.lower() for x in owners if x]:
                         return True
-                    if self.bypass:
-                        return True
                 if get_sector(x, y) in self.shared_sectors:
                     return True
                 if owners[0]:
-                    self.protocol.notify_player("Sector %s is claimed. If you want to build here, ask %s to share it with you" % (get_sector(x, y), owners[0]), self.name)
+                    self.send_chat("Sector %s is claimed. If you want to build here, ask %s to /share it with you" % (get_sector(x, y), owners[0]))
                 else:
-                    self.protocol.notify_player("Sector %s is reserved" % get_sector(x, y), self.name)
+                    self.send_chat("Sector %s is reserved" % get_sector(x, y))
                 return False
-            return True
+            return None # Returned for unclaimed sectors
 
         def on_block_destroy(self, x, y, z, value):
             if connection.on_block_destroy(self, x, y, z, value) == False:
@@ -324,11 +371,35 @@ def apply_script(protocol, connection, config):
             if self.can_build(x, y, z) == False:
                 return False
 
+            if self.state: # CBC compatibility. Makes it so players can only use commands in sectors they have access to
+                if self.can_build(x, y, z) != True:
+                    self.send_chat("Build commands can only be used in claimed sectors")
+                    return False
+                if self.state._choosing == 1:
+                    if self.can_build(x, self.state._first_point.y, z) != True or self.can_build(self.state._first_point.x, y, z) != True:
+                        self.send_chat("Build commands can only affect blocks within claimed sectors")
+                        return False
+                    if abs(x - self.state._first_point.x) > 64 or abs(y - self.state._first_point.y) > 64:
+                        self.send_chat("Build commands are limited to 64 blocks")
+                        return False
+
         def on_block_build_attempt(self, x, y, z):
             if connection.on_block_build_attempt(self, x, y, z) == False:
                 return False
             if self.can_build(x, y, z) == False:
                 return False
+
+            if self.state:
+                if self.can_build(x, y, z) != True:
+                    self.send_chat("Build commands can only be used in claimed sectors")
+                    return False
+                if self.state._choosing == 1:
+                    if self.can_build(x, self.state._first_point.y, z) != True or self.can_build(self.state._first_point.x, y, z) != True:
+                        self.send_chat("Build commands can only affect blocks within claimed sectors")
+                        return False
+                    if abs(x - self.state._first_point.x) > 64 or abs(y - self.state._first_point.y) > 64:
+                        self.send_chat("Build commands are limited to 64 blocks")
+                        return False
 
         def on_line_build_attempt(self, points):
             if connection.on_line_build_attempt(self, points) == False:
@@ -336,5 +407,10 @@ def apply_script(protocol, connection, config):
             for point in points:
                 if self.can_build(*point) == False:
                     return False
+
+                if self.state:
+                    if self.can_build(*point) != True:
+                        self.send_chat("Build commands can only be used in claimed sectors")
+                        return False
 
     return ClaimsProtocol, ClaimsConnection

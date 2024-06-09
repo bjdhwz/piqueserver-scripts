@@ -20,17 +20,22 @@ db_path = os.path.join(config.config_dir, 'sqlite.db')
 con = sqlite3.connect(db_path)
 cur = con.cursor()
 cur.execute('CREATE TABLE IF NOT EXISTS sessions(id INTEGER PRIMARY KEY, dt, user COLLATE NOCASE, ip, client, logged_in)')
+cur.execute('CREATE TABLE sessions_tmp(id INTEGER PRIMARY KEY, dt, user COLLATE NOCASE, ip, client, logged_in)')
+cur.execute('INSERT INTO sessions_tmp(id, dt, user, ip, client, logged_in) SELECT id, dt, user, ip, client, logged_in FROM sessions')
+cur.execute('DROP TABLE sessions')
+cur.execute('ALTER TABLE sessions_tmp RENAME TO sessions')
+con.commit()
+cur.execute('VACUUM')
 con.commit()
 cur.close()
 
 
-@command()
-def name(self, victim, new_name):
-    player = get_player(self.protocol, victim)
-    old_name = player.name
-    player.name = new_name
-    return "%s is now known as %s" % (old_name, new_name)
-# /name ic-liza 1
+##@command()
+##@target_player
+##def name(self, player, new_name):
+##    old_name = player.name
+##    player.name = new_name
+##    return "%s is now known as %s" % (old_name, new_name)
 
 @command()
 def seen(connection, player=None):
@@ -41,11 +46,11 @@ def seen(connection, player=None):
     if not player:
         player = connection.name
     cur = con.cursor()
-    res = cur.execute('SELECT dt, user FROM sessions WHERE user = ? ORDER BY id DESC LIMIT 1', (player,)).fetchone()
+    res = cur.execute('SELECT id, dt, user FROM sessions WHERE user = ? ORDER BY id DESC LIMIT 1', (player,)).fetchone()
     cur.close()
     if res:
-        dt, name = res
-        return "Player named %s was seen on %s" % (name, dt[:10])
+        session_id, dt, name = res
+        return "Player named %s was seen on %s%s" % (name, dt[:10], ' (ID%s)' % session_id if connection.admin else '')
     else:
         return "No sessions found for this player"
 

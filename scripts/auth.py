@@ -16,11 +16,16 @@ from datetime import datetime
 import hashlib, os, sqlite3
 from piqueserver.commands import command
 from piqueserver.config import config
+from pyspades.types import AttributeSet
 
 db_path = os.path.join(config.config_dir, 'sqlite.db')
 con = sqlite3.connect(db_path)
 cur = con.cursor()
-cur.execute('CREATE TABLE IF NOT EXISTS users(user COLLATE NOCASE, password, user_type, reg_dt, reg_session)')
+cur.execute('CREATE TABLE IF NOT EXISTS users(user, password, user_type, reg_dt, reg_session)')
+cur.execute('CREATE TABLE users_tmp(user COLLATE NOCASE, password, user_type, reg_dt, reg_session)')
+cur.execute('INSERT INTO users_tmp(user, password, user_type, reg_dt, reg_session) SELECT user, password, user_type, reg_dt, reg_session FROM users')
+cur.execute('DROP TABLE users')
+cur.execute('ALTER TABLE users_tmp RENAME TO users')
 con.commit()
 cur.close()
 
@@ -76,7 +81,7 @@ def login(connection, password):
                 connection.logged_in = True
                 if user_type:
                     connection.on_user_login(user_type, True)
-                connection.protocol.notify_admins("%s logged in successfully" % connection.name)
+                connection.protocol.notify_admins("%s logged in" % connection.name)
                 return "Logged in successfully"
             else:
                 if connection.login_retries is None:
@@ -135,6 +140,25 @@ def unregister(connection, player):
     else:
         cur.close()
         return "Account not found"
+
+@command()
+def logout(connection):
+    """
+    Log out
+    /logout
+    """
+    if not connection.logged_in:
+        return "You're not logged in"
+    else:
+        connection.user_types = AttributeSet()
+        connection.rights = AttributeSet()
+        connection.admin = False
+        connection.logged_in = False
+        cur = con.cursor()
+        cur.execute('UPDATE sessions SET logged_in = ? WHERE id = ?', (False, connection.session))
+        con.commit()
+        cur.close()
+        return "You've logged out"
 
 
 def apply_script(protocol, connection, config):

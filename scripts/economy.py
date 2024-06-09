@@ -5,7 +5,7 @@ Every hour, each player online receives an amount of money equal to a total numb
 Commands
 ^^^^^^^^
 
-* ``/send <amount> <receiver> [comment]`` send money to another player
+* ``/pay <amount> <receiver> [comment]`` send money to another player
 * ``/balance [player]`` check player's balance
 * ``/balancetop`` show the richest players
 
@@ -17,12 +17,21 @@ import os, sqlite3
 from twisted.internet.task import LoopingCall
 from piqueserver.commands import command, get_player, target_player
 from piqueserver.config import config
+from pyspades.common import escape_control_codes
 
 db_path = os.path.join(config.config_dir, 'sqlite.db')
 con = sqlite3.connect(db_path)
 cur = con.cursor()
-cur.execute('CREATE TABLE IF NOT EXISTS wallets(user UNIQUE COLLATE NOCASE, balance INTEGER)')
+cur.execute('CREATE TABLE IF NOT EXISTS wallets(user COLLATE NOCASE, balance INTEGER)')
+cur.execute('CREATE TABLE wallets_tmp(user COLLATE NOCASE, balance INTEGER)')
+cur.execute('INSERT INTO wallets_tmp(user, balance) SELECT user, balance FROM wallets')
+cur.execute('DROP TABLE wallets')
+cur.execute('ALTER TABLE wallets_tmp RENAME TO wallets')
 cur.execute('CREATE TABLE IF NOT EXISTS transactions(id INTEGER PRIMARY KEY, dt, sender COLLATE NOCASE, sender_ip, sender_session, receiver COLLATE NOCASE, amount, comment, cancelled)')
+cur.execute('CREATE TABLE transactions_tmp(id INTEGER PRIMARY KEY, dt, sender COLLATE NOCASE, sender_ip, sender_session, receiver COLLATE NOCASE, amount, comment, cancelled)')
+cur.execute('INSERT INTO transactions_tmp(id, dt, sender, sender_ip, sender_session, receiver, amount, comment, cancelled) SELECT id, dt, sender, sender_ip, sender_session, receiver, amount, comment, cancelled FROM transactions')
+cur.execute('DROP TABLE transactions')
+cur.execute('ALTER TABLE transactions_tmp RENAME TO transactions')
 con.commit()
 cur.close()
 
@@ -31,7 +40,7 @@ S = '\4'
 
 @command()
 @target_player
-def pay(connection, receiver, amount, comment=None):
+def pay(connection, receiver, amount, *comment):
     """
     Send money to another player
     /pay <receiver> <amount> [comment] - amount should be a whole number
@@ -54,6 +63,10 @@ def pay(connection, receiver, amount, comment=None):
     if connection.name.lower() == receiver.name.lower():
         return "Enter the name of the player you want to send money to"
 
+    if comment:
+        comment = '"%s"' % escape_control_codes(' '.join(comment[:80]))[:80]
+    else:
+        comment = ''
     cur = con.cursor()
     cur.execute('INSERT INTO transactions(dt, sender, sender_ip, sender_session, receiver, amount, comment, cancelled) VALUES(?, ?, ?, ?, ?, ?, ?, ?)', (
         datetime.now().isoformat(sep=' ')[:16],
@@ -68,12 +81,8 @@ def pay(connection, receiver, amount, comment=None):
     cur.execute('INSERT INTO wallets(user, balance) VALUES(?, ?) ON CONFLICT(user) DO UPDATE SET balance = balance + excluded.balance', (receiver.name, amount))
     con.commit()
     cur.close()
-    if comment:
-        comment = ' "' + comment + '"'
-    else:
-        comment = ''
-    connection.protocol.notify_player("%s sent you %s%s%s" % (connection.name, amount, S, comment), receiver.name)
-    connection.protocol.notify_admins("%s sent %s%s to %s%s" % (connection.name, amount, S, receiver.name, comment))
+    connection.protocol.notify_player("%s sent you %s%s %s" % (connection.name, amount, S, comment), receiver.name)
+    connection.protocol.notify_admins("%s sent %s%s to %s %s" % (connection.name, amount, S, receiver.name, comment))
     return "Money have been sent"
 
 @command('balance', 'bal', 'money')
