@@ -15,15 +15,7 @@ db_path = os.path.join(config.config_dir, 'sqlite.db')
 con = sqlite3.connect(db_path)
 cur = con.cursor()
 cur.execute('CREATE TABLE IF NOT EXISTS claims(sector, owner COLLATE NOCASE, dt, name)')
-cur.execute('CREATE TABLE claims_tmp(sector, owner COLLATE NOCASE, dt, name)')
-cur.execute('INSERT INTO claims_tmp(sector, owner, dt, name) SELECT sector, owner, dt, name FROM claims')
-cur.execute('DROP TABLE claims')
-cur.execute('ALTER TABLE claims_tmp RENAME TO claims')
 cur.execute('CREATE TABLE IF NOT EXISTS shared(sector, player COLLATE NOCASE, dt)')
-cur.execute('CREATE TABLE shared_tmp(sector, player COLLATE NOCASE, dt)')
-cur.execute('INSERT INTO shared_tmp(sector, player, dt) SELECT sector, player, dt FROM shared')
-cur.execute('DROP TABLE shared')
-cur.execute('ALTER TABLE shared_tmp RENAME TO shared')
 con.commit()
 cur.close()
 
@@ -390,6 +382,8 @@ def apply_script(protocol, connection, config):
                 return False
 
             if self.state:
+                if type(self.state).__name__ == 'GradientState': # exception
+                    return
                 if self.can_build(x, y, z) != True:
                     self.send_chat("Build commands can only be used in claimed sectors")
                     return False

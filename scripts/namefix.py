@@ -1,5 +1,5 @@
 """
-Kick players with ASCII control characters in name.
+Kicks players with ASCII control characters in name.
 
 .. codeauthor:: Liza
 """

@@ -54,6 +54,8 @@ def apply_script(protocol, connection, config):
         def on_block_destroy(self, x, y, z, value):
             if self.history_mode:
                 return False
+            if connection.on_block_destroy(self, x, y, z, value) == False:
+                return False
             if value == 2:
                 self.block_destroy_color = (
                     self.protocol.world.map.get_color(x, y, z+1),
@@ -62,8 +64,6 @@ def apply_script(protocol, connection, config):
                     )
             else:
                 self.block_destroy_color = self.protocol.world.map.get_color(x, y, z)
-            if connection.on_block_destroy(self, x, y, z, value) == False:
-                return False
 
         def on_block_build_attempt(self, x, y, z):
             if self.history_mode:
@@ -74,11 +74,12 @@ def apply_script(protocol, connection, config):
         def on_line_build_attempt(self, points):
             if self.history_mode:
                 return False
-            for point in points:
-                if connection.on_block_build_attempt(self, *point) == False:
-                    return False
+            if connection.on_line_build_attempt(self, points) == False:
+                return False
 
         def on_block_removed(self, x, y, z):
+            if connection.on_block_removed(self, x, y, z) == False:
+                return False
             if self.block_destroy_spade_multiblock:
                 self.block_destroy_spade_multiblock = False
                 return
@@ -99,12 +100,16 @@ def apply_script(protocol, connection, config):
                 self.protocol.blocklog_queue += [(int(datetime.datetime.now(datetime.UTC).timestamp()), xyz, self.session, False, color, False,)]
 
         def on_block_build(self, x, y, z):
+            if connection.on_block_build(self, x, y, z) == False:
+                return False
             xyz = x << 15 | y << 6 | z
             r, g, b = self.color
             color = r << 16 | g << 8 | b
             self.protocol.blocklog_queue += [(int(datetime.datetime.now(datetime.UTC).timestamp()), xyz, self.session, True, color, False,)]
 
         def on_line_build(self, points):
+            if connection.on_line_build(self, points) == False:
+                return False
             for point in points:
                 x, y, z = point
                 xyz = x << 15 | y << 6 | z

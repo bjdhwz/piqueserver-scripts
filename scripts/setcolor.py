@@ -27,7 +27,7 @@ def setcolor(connection, *args):
     /setcolor ? - get current color
     """
     if len(args) == 3:
-        rgb = (int(x) for x in args)
+        rgb = tuple(int(x) for x in args)
     elif len(args) == 1:
         if args[0] == '?':
             return '#%02X%02X%02X ' % connection.color + str(connection.color)
