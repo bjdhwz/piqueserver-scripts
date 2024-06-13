@@ -116,7 +116,7 @@ def group(connection, player=None, user_type=None):
             return "Account has been modified"
         else:
             user, user_type, reg_dt, reg_session = res
-            return "%s | group: %s | registered %s session ID%s" % (user, user_type, reg_dt, reg_session)
+            return "%s | group: %s | registered %s session ID %s" % (user, user_type, reg_dt, reg_session)
     else:
         return "Account not found"
 
@@ -155,6 +155,21 @@ def logout(connection):
         con.commit()
         cur.close()
         return "You've logged out"
+
+@command(admin_only=True)
+def sql(connection, *args):
+    """
+    Debug command to execute raw SQL queries
+    /sql
+    """
+    try:
+        cur = con.cursor()
+        res = cur.execute(" ".join(args)).fetchall()
+        con.commit()
+        cur.close()
+        return str(res)
+    except Exception as e:
+        return str(e)
 
 
 def apply_script(protocol, connection, config):

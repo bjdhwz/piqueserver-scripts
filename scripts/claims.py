@@ -100,7 +100,7 @@ def sector(connection, sector=None):
     shared = cur.execute('SELECT player FROM shared WHERE sector = ?', (sector,)).fetchall()
     cur.close()
     if shared:
-        return "Sector %s is claimed by %s since %s and shared with: %s" % (sector, owner, dt[:10], ', '.join([x[0] for x in shared]))
+        return "Sector %s is claimed by %s since %s and shared with %s" % (sector, owner, dt[:10], ', '.join([x[0] for x in shared]))
     else:
         return "Sector %s is claimed by %s since %s" % (sector, owner, dt[:10])
 
@@ -195,11 +195,13 @@ def share(connection, sector, player):
         return "Invalid sector. Example of a sector: A1"
 
     owner = claimed_by(sector, connection.name)
-    if owner != True and not connection.admin:
-        return "You can only share sectors you claim. Claim a sector using /claim first"
+    if not connection.admin:
+        if owner != True:
+            return "You can only share sectors you claim. Claim a sector using /claim first"
 
     if connection.name.lower() == player.lower():
-        return "Enter the name of the player you want to let to build in that sector"
+        if not connection.admin:
+            return "Enter the name of the player you want to let to build in that sector"
 
     cur = con.cursor()
     if cur.execute('SELECT player FROM shared WHERE sector = ? AND player = ?', (sector, player)).fetchone():
@@ -242,17 +244,13 @@ def unshare(connection, sector, player):
         return "Invalid sector. Example of a sector: A1"
 
     owner = claimed_by(sector, connection.name)
-    if owner != True and not connection.admin:
-        return "You don't claim any sector. Claim a sector using /claim first"
+    if not connection.admin:
+        if owner != True:
+            return "You can only manage sectors you claim. Claim a sector using /claim first"
 
     if connection.name.lower() == player.lower():
-        return "Enter the name of the player"
-
-    cur = con.cursor()
-    if not cur.execute('SELECT player FROM shared WHERE sector = ? AND player = ?', (sector, player)).fetchone():
-        cur.close()
-        return "This player has no access to sector"
-    cur.close()
+        if not connection.admin:
+            return "Enter the name of the player"
 
     players_online = [x.name.lower() for x in connection.protocol.players.values()]
     if player.lower() in players_online:
@@ -266,7 +264,7 @@ def unshare(connection, sector, player):
 
     connection.protocol.notify_player("You can no longer build in %s" % sector, player)
     connection.protocol.notify_admins("%s unshared %s for %s" % (connection.name, sector, player))
-    return "Player %s can no longer build in that sector" % player
+    return "Player %s no longer can build in that sector" % player
 
 @command(admin_only=True)
 def reserve(connection, sector):
@@ -364,16 +362,19 @@ def apply_script(protocol, connection, config):
                 return False
 
             if self.state: # CBC compatibility. Makes it so players can only use commands in sectors they have access to
+                if type(self.state).__name__ == 'GradientState': # exception
+                    return
                 if self.can_build(x, y, z) != True:
                     self.send_chat("Build commands can only be used in claimed sectors")
                     return False
-                if self.state._choosing == 1:
-                    if self.can_build(x, self.state._first_point.y, z) != True or self.can_build(self.state._first_point.x, y, z) != True:
-                        self.send_chat("Build commands can only affect blocks within claimed sectors")
-                        return False
-                    if abs(x - self.state._first_point.x) > 64 or abs(y - self.state._first_point.y) > 64:
-                        self.send_chat("Build commands are limited to 64 blocks")
-                        return False
+                if '_choosing' in dir(self.state):
+                    if self.state._choosing == 1:
+                        if self.can_build(x, self.state._first_point.y, z) != True or self.can_build(self.state._first_point.x, y, z) != True:
+                            self.send_chat("Build commands can only affect blocks within claimed sectors")
+                            return False
+                        if abs(x - self.state._first_point.x) > 64 or abs(y - self.state._first_point.y) > 64:
+                            self.send_chat("Build commands are limited to 64 blocks")
+                            return False
 
         def on_block_build_attempt(self, x, y, z):
             if connection.on_block_build_attempt(self, x, y, z) == False:
@@ -382,18 +383,19 @@ def apply_script(protocol, connection, config):
                 return False
 
             if self.state:
-                if type(self.state).__name__ == 'GradientState': # exception
+                if type(self.state).__name__ == 'GradientState':
                     return
                 if self.can_build(x, y, z) != True:
                     self.send_chat("Build commands can only be used in claimed sectors")
                     return False
-                if self.state._choosing == 1:
-                    if self.can_build(x, self.state._first_point.y, z) != True or self.can_build(self.state._first_point.x, y, z) != True:
-                        self.send_chat("Build commands can only affect blocks within claimed sectors")
-                        return False
-                    if abs(x - self.state._first_point.x) > 64 or abs(y - self.state._first_point.y) > 64:
-                        self.send_chat("Build commands are limited to 64 blocks")
-                        return False
+                if '_choosing' in dir(self.state):
+                    if self.state._choosing == 1:
+                        if self.can_build(x, self.state._first_point.y, z) != True or self.can_build(self.state._first_point.x, y, z) != True:
+                            self.send_chat("Build commands can only affect blocks within claimed sectors")
+                            return False
+                        if abs(x - self.state._first_point.x) > 64 or abs(y - self.state._first_point.y) > 64:
+                            self.send_chat("Build commands are limited to 64 blocks")
+                            return False
 
         def on_line_build_attempt(self, points):
             if connection.on_line_build_attempt(self, points) == False:
@@ -401,10 +403,5 @@ def apply_script(protocol, connection, config):
             for point in points:
                 if self.can_build(*point) == False:
                     return False
-
-                if self.state:
-                    if self.can_build(*point) != True:
-                        self.send_chat("Build commands can only be used in claimed sectors")
-                        return False
 
     return ClaimsProtocol, ClaimsConnection
