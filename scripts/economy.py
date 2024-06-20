@@ -2,6 +2,8 @@
 Money system. Allows players to send money to each other.
 Every hour, each player online receives an amount of money equal to a total number of players online.
 
+Requires auth.py
+
 Commands
 ^^^^^^^^
 

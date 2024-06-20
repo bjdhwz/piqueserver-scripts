@@ -1,13 +1,6 @@
 """
 Log connections to assist in detecting ban circumvention and impersonation attempts.
 
-Commands
-^^^^^^^^
-
-* ``/send <amount> <receiver> [comment]`` send money to another player
-* ``/balance [player]`` check player's balance
-* ``/balancetop`` show the richest players
-
 .. codeauthor:: Liza
 """
 
@@ -47,26 +40,6 @@ def seen(connection, player=None):
         return "Player named %s was seen on %s%s" % (name, dt[:10], ' (ID%s)' % session_id if connection.admin else '')
     else:
         return "No sessions found for this player"
-
-@command()
-def status(connection, player=None):
-    """
-    Show player's authorization status
-    /status
-    """
-    if not player:
-        player = connection.name
-    if player.lower() not in [p.name.lower() for p in connection.protocol.players.values()]:
-        return "Player not found"
-    cur = con.cursor()
-    session = cur.execute('SELECT user, logged_in FROM sessions WHERE user = ? ORDER BY id DESC LIMIT 1', (player,)).fetchone()
-    record = cur.execute('SELECT user FROM users WHERE user = ?', (player,)).fetchone()
-    cur.close()
-    user, logged_in = session
-    if record:
-        connection.send_chat("%s is %slogged in" % (user, '' if logged_in else 'not '))
-    else:
-        connection.send_chat("%s is not registered" % user)
 
 @command(admin_only=True)
 def session(connection, session_id=None):

@@ -1,6 +1,8 @@
 """
 Logs block operations into database and lets players check history of any point on the map to easily detect griefing.
 
+Requires sessions.py
+
 Commands
 ^^^^^^^^
 

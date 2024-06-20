@@ -1,6 +1,11 @@
 """
 Lets registered players claim 64x64 sectors of the map and share them with other players.
 
+Requires auth.py
+
+May conflict with building scripts (building scripts don't work, or blocks in claimed sectors become breakable by anyone)
+If that happens, try to change script loading order in config.
+
 .. codeauthor:: Liza
 """
 
@@ -56,9 +61,9 @@ def claim(connection, sector):
     if owner == True:
         return "Sector %s is already claimed by you" % sector
     elif owner:
-        return "Sector %s is already claimed. If you want to build here, ask %s to share it with you" % (sector, owner)
+        return "Sector %s is already claimed. You can claim one of the /unclaimed sectors" % (sector, owner)
     elif owner == None:
-        return "Sector %s is reserved and can't be claimed" % sector
+        return "Sector %s is reserved and can't be claimed. You can claim one of the /unclaimed sectors" % sector
     else:
         cur = con.cursor()
         owned_by_player = cur.execute('SELECT sector FROM claims WHERE owner = ?', (connection.name,)).fetchall()
@@ -349,7 +354,7 @@ def apply_script(protocol, connection, config):
                 if get_sector(x, y) in self.shared_sectors:
                     return True
                 if owners[0]:
-                    self.send_chat("Sector %s is claimed. If you want to build here, ask %s to /share it with you" % (get_sector(x, y), owners[0]))
+                    self.send_chat("Sector %s is claimed. If you want to build here, ask %s to /share it with you. You can also build in /unclaimed sectors" % (get_sector(x, y), owners[0]))
                 else:
                     self.send_chat("Sector %s is reserved" % get_sector(x, y))
                 return False
@@ -361,7 +366,11 @@ def apply_script(protocol, connection, config):
             if self.can_build(x, y, z) == False:
                 return False
 
-            if self.state: # CBC compatibility. Makes it so players can only use commands in sectors they have access to
+            if self.sculpting: # /sculpt
+                if self.can_build(x, y, z) != True:
+                    self.send_chat("Build commands can only be used in claimed sectors")
+                    return False
+            if self.state: # CBC compatibility. Limits usage to sectors players have access to
                 if type(self.state).__name__ == 'GradientState': # exception
                     return
                 if self.can_build(x, y, z) != True:
@@ -382,6 +391,10 @@ def apply_script(protocol, connection, config):
             if self.can_build(x, y, z) == False:
                 return False
 
+            if self.sculpting:
+                if self.can_build(x, y, z) != True:
+                    self.send_chat("Build commands can only be used in claimed sectors")
+                    return False
             if self.state:
                 if type(self.state).__name__ == 'GradientState':
                     return

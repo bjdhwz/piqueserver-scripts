@@ -3,6 +3,10 @@ In-game account system. Allows players to register, and admins to assign groups 
 Automatically logs player in if IP address doesn't change.
 First registered account will be added to 'admin' group.
 
+Requires sessions.py
+
+Base script for claims.py and economy.py
+
 Commands
 ^^^^^^^^
 
@@ -119,6 +123,26 @@ def group(connection, player=None, user_type=None):
             return "%s | group: %s | registered %s session ID %s" % (user, user_type, reg_dt, reg_session)
     else:
         return "Account not found"
+
+@command()
+def status(connection, player=None):
+    """
+    Show player's authorization status
+    /status
+    """
+    if not player:
+        player = connection.name
+    if player.lower() not in [p.name.lower() for p in connection.protocol.players.values()]:
+        return "Player not found"
+    cur = con.cursor()
+    session = cur.execute('SELECT user, logged_in FROM sessions WHERE user = ? ORDER BY id DESC LIMIT 1', (player,)).fetchone()
+    record = cur.execute('SELECT user FROM users WHERE user = ?', (player,)).fetchone()
+    cur.close()
+    user, logged_in = session
+    if record:
+        connection.send_chat("%s is %slogged in" % (user, '' if logged_in else 'not '))
+    else:
+        connection.send_chat("%s is not registered" % user)
 
 @command('unregister', 'unreg', admin_only=True)
 def unregister(connection, player):
