@@ -227,7 +227,10 @@ def share(connection, sector, player):
         if not get_player(connection.protocol, player).logged_in:
             connection.protocol.notify_player("Please /login to build there", player)
     elif player.lower() in players_online:
-        get_player(connection.protocol, player).shared_sectors += [sector]
+        p = get_player(connection.protocol, player)
+        if not p.shared_sectors:
+            p.shared_sectors = []
+        p.shared_sectors += [sector]
     else:
         return "Player not found"
 
@@ -260,7 +263,8 @@ def unshare(connection, sector, player):
     players_online = [x.name.lower() for x in connection.protocol.players.values()]
     if player.lower() in players_online:
         p = get_player(connection.protocol, player)
-        p.shared_sectors = [x for x in p.shared_sectors if x != sector]
+        if p.shared_sectors:
+            p.shared_sectors = [x for x in p.shared_sectors if x != sector]
 
     cur = con.cursor()
     cur.execute('DELETE FROM shared WHERE sector = ? AND player = ?', (sector, player))
@@ -341,7 +345,7 @@ def apply_script(protocol, connection, config):
 
     class ClaimsConnection(connection):
         current_sector = None
-        shared_sectors = []
+        shared_sectors = None
 
         def can_build(self, x, y, z):
             owners = self.protocol.is_claimed(x, y, z)
@@ -351,8 +355,9 @@ def apply_script(protocol, connection, config):
                 if self.logged_in:
                     if self.name.lower() in [x.lower() for x in owners if x]:
                         return True
-                if get_sector(x, y) in self.shared_sectors:
-                    return True
+                if self.shared_sectors:
+                    if get_sector(x, y) in self.shared_sectors:
+                        return True
                 if owners[0]:
                     self.send_chat("Sector %s is claimed. If you want to build here, ask %s to /share it with you. You can also build in /unclaimed sectors" % (get_sector(x, y), owners[0]))
                 else:
