@@ -71,9 +71,9 @@ def invisible(connection, player):
         protocol.broadcast_contained(weapon_input, sender=player)
     if connection is not player and connection in protocol.players.values():
         if player.invisible:
-            return '%s is now invisible' % player.name
+            connection.protocol.notify_admins('%s made %s invisible' % (connection.name, player.name))
         else:
-            return '%s is now visible' % player.name
+            connection.protocol.notify_admins('%s made %s visible' % (connection.name, player.name))
 
 
 def apply_script(protocol, connection, config):

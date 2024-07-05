@@ -19,12 +19,11 @@ from pyspades.common import make_color
 from pyspades.contained import SetColor
 
 
-@command('setcolor', 'clr')
+@command('clr', 'setcolor')
 def setcolor(connection, *args):
     """
     Set current block color
-    /setcolor <r> <g> <b>, /setcolor <#aabbcc>, /setcolor <#abc> or no arguments to get random color
-    /setcolor ? - get current color
+    /clr <r> <g> <b>, /clr <#aabbcc>, /clr <#abc>, no arguments to get random color or /clr ? to get current color
     """
     if len(args) == 3:
         rgb = tuple(int(x) for x in args)
@@ -35,7 +34,7 @@ def setcolor(connection, *args):
             h = args[0].strip('#')
             if len(h) == 3:
                 h = ''.join([x*2 for x in h])
-            rgb = (int(h[i:i+2], 16) for i in (0, 2, 4))
+            rgb = tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
     else:
         rgb = choice(range(255)), choice(range(255)), choice(range(255))
 

@@ -4,7 +4,7 @@ Send message to all admins currently online
 Commands
 ^^^^^^^^
 
-* ``/ <message>`` - just slash is enough
+* ``// <message>``
 
 .. codeauthor:: Liza
 """
@@ -16,7 +16,7 @@ from piqueserver.commands import command, join_arguments
 def adminchannel(connection, *arg):
     """
     Send message to all admins currently online
-    /a <message> or / <message> (just slash is enough)
+    /a <message> or // <message>
     """
     message = join_arguments(arg)
     if not message:

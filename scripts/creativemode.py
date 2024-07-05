@@ -14,7 +14,8 @@ Commands
 .. codeauthor:: Liza
 """
 
-from piqueserver.commands import command
+from piqueserver.commands import command, target_player
+from pyspades import contained as loaders
 from pyspades.common import coordinates
 
 HIDE_POS = (-256, -256, 63)
@@ -85,6 +86,24 @@ def flag(connection, team, hide=False):
         x, y, z = [round(x*2)/2 for x in connection.get_location()]
         flag.set(x, y, z+2.5)
     flag.update()
+
+@command('clearammo', 'ca', admin_only=True)
+@target_player
+def clear_ammo(connection, player):
+    """
+    Removes player's ammo
+    /clearammo
+    """
+    weapon_reload = loaders.WeaponReload()
+    weapon_reload.player_id = player.player_id
+    weapon_reload.clip_ammo = 0
+    weapon_reload.reserve_ammo = 0
+    player.grenades = 0
+    player.weapon_object.reset()
+    player.weapon_object.set_shoot(False)
+    player.weapon_object.clip_ammo = 0
+    player.weapon_object.reserve_ammo = 0
+    player.send_contained(weapon_reload)
 
 
 def apply_script(protocol, connection, config):

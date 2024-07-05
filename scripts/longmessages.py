@@ -68,7 +68,7 @@ def apply_script(protocol, connection, config):
                         if player == self:
                             player.send_contained(contained)
                         if player.admin:
-                            player.send_chat('[SHADOW] %s: %s' % (self.name, value))
+                            player.send_chat('[Shadow] %s: %s' % (self.name, value))
                     else:
                         if not player.deaf:
                             if team is None or team is player.team:

@@ -90,6 +90,22 @@ def players(connection):
     else:
         return "No active sessions found"
 
+@command(admin_only=True)
+def recent(connection):
+    """
+    Show recent sessions
+    /recent
+    """
+    active_sessions = [player.session for player in connection.protocol.players.values()]
+    cur = con.cursor()
+    records = cur.execute('SELECT id, dt, user, ip, client, logged_in FROM sessions ORDER BY id DESC LIMIT 5').fetchall()
+    cur.close()
+    if records:
+        for record in records:
+            connection.send_chat("%s | %s | %s | %s | %s | logged in: %s" % record)
+    else:
+        return "No recent sessions found"
+
 
 def apply_script(protocol, connection, config):
     class SessionsConnection(connection):
