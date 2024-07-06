@@ -87,6 +87,11 @@ def flag(connection, team, hide=False):
         flag.set(x, y, z+2.5)
     flag.update()
 
+@command()
+def pos(connection):
+    x, y, z = connection.get_location()
+    return '(%s, %s, %s)' % (str(int(x)), str(int(y)), str(int(z)))
+
 @command('clearammo', 'ca', admin_only=True)
 @target_player
 def clear_ammo(connection, player):

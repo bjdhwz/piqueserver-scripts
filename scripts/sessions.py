@@ -5,6 +5,7 @@ Log connections to assist in detecting ban circumvention and impersonation attem
 """
 
 from datetime import datetime
+from collections import Counter
 import os, sqlite3
 from piqueserver.commands import command, get_player
 from piqueserver.config import config
@@ -17,13 +18,6 @@ con.commit()
 cur.close()
 
 
-##@command()
-##@target_player
-##def name(self, player, new_name):
-##    old_name = player.name
-##    player.name = new_name
-##    return "%s is now known as %s" % (old_name, new_name)
-
 @command()
 def seen(connection, player=None):
     """
@@ -33,10 +27,10 @@ def seen(connection, player=None):
     if not player:
         player = connection.name
     cur = con.cursor()
-    res = cur.execute('SELECT id, dt, user FROM sessions WHERE user = ? ORDER BY id DESC LIMIT 1', (player,)).fetchone()
+    record = cur.execute('SELECT id, dt, user FROM sessions WHERE user = ? ORDER BY id DESC LIMIT 1', (player,)).fetchone()
     cur.close()
-    if res:
-        session_id, dt, name = res
+    if record:
+        session_id, dt, name = record
         return "Player named %s was seen on %s%s" % (name, dt[:10], ' (ID%s)' % session_id if connection.admin else '')
     else:
         return "No sessions found for this player"
@@ -105,6 +99,70 @@ def recent(connection):
             connection.send_chat("%s | %s | %s | %s | %s | logged in: %s" % record)
     else:
         return "No recent sessions found"
+
+@command(admin_only=True)
+def same(connection, player):
+    """
+    Show similar sessions
+    /same <name>
+    """
+    cur = con.cursor()
+    record = cur.execute('SELECT id, user, ip FROM sessions WHERE user = ? ORDER BY id DESC LIMIT 1', (player,)).fetchone()
+    if record:
+        session_id, user, current_ip = record
+        ips = [x[0] for x in cur.execute('SELECT ip FROM sessions WHERE user = ?', (user,)).fetchall()]
+        names = [x[0] for x in cur.execute('SELECT user FROM sessions WHERE ip = ?', (current_ip,)).fetchall()]
+        othernames = []
+        if len(set(ips)) > 1:
+            for ip in set(ips):
+                if ip != current_ip:
+                    othernames += [(ip, x[0]) for x in cur.execute('SELECT user FROM sessions WHERE ip = ?', (ip,)).fetchall()]
+    cur.close()
+
+    ips_by_frequency = list(Counter(ips).most_common(len(set(ips))))
+    if len(ips_by_frequency) > 5:
+        connection.send_chat(', '.join(['<'+str(ip)+'>' for ip, freq in ips_by_frequency[5:]]))
+    for ip, freq in reversed(ips_by_frequency[:5]):
+        percent = round(freq/len(ips)*100)
+        connection.send_chat('<%s> (%s/%s%%)' % (ip, freq, percent))
+    connection.send_chat('IPs used with this name:')
+
+    names_by_frequency = list(Counter(names).most_common(len(set(names))))
+    if len(names_by_frequency) > 5:
+        connection.send_chat(', '.join(['<'+str(name)+'>' for name, freq in names_by_frequency[5:]]))
+    for name, freq in reversed(names_by_frequency[:5]):
+        percent = round(freq/len(names)*100)
+        connection.send_chat('<%s> (%s/%s%%)' % (name, freq, percent))
+    connection.send_chat('Names used with this IP:')
+
+    if othernames:
+        othernames_by_frequency = list(Counter(othernames).most_common(len(set(othernames))))
+        if len(names_by_frequency) > 5:
+            connection.send_chat(', '.join([str(pair[0])+' <'+str(pair[1])+'>' for pair, freq in othernames_by_frequency[5:]]))
+        for pair, freq in reversed(othernames_by_frequency[:5]):
+            percent = round(freq/len(othernames)*100)
+            connection.send_chat('%s <%s> (%s/%s%%)' % (pair[0], pair[1], freq, percent))
+        connection.send_chat('Names used with IPs used by this name:')
+
+@command(admin_only=True)
+def sameip(connection, ip):
+    """
+    Show names used by IP
+    /sameip <IP> - supports wildcard (eg 192.168.*)
+    """
+    cur = con.cursor()
+    names = [x[0] for x in cur.execute('SELECT user FROM sessions WHERE ip LIKE ?', (ip.replace('*', '%'),)).fetchall()]
+    cur.close()
+    if names:
+        names_by_frequency = list(Counter(names).most_common(len(set(names))))
+        if len(names_by_frequency) > 5:
+            connection.send_chat(', '.join(['<'+str(name)+'>' for name, freq in names_by_frequency[5:]]))
+        for name, freq in reversed(names_by_frequency[:5]):
+            percent = round(freq/len(names)*100)
+            connection.send_chat('<%s> (%s/%s%%)' % (name, freq, percent))
+        connection.send_chat('Names used with this IP:')
+    else:
+        return 'No names found'
 
 
 def apply_script(protocol, connection, config):
