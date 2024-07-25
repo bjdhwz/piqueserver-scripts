@@ -140,13 +140,18 @@ def title(connection, sector, *name):
     return "You can only name your claims"
 
 @command()
-def claimed(connection):
+def claimed(connection, player=None):
     """
     List claimed sectors
-    /claimed
+    /claimed <player>
     """
     cur = con.cursor()
-    claimed_sectors = [x[0] + (' <' + x[1] + '>' if x[1] else ' [reserved]') for x in cur.execute('SELECT sector, owner FROM claims').fetchall()]
+    if player:
+        claimed_sectors = [x[0] + (' <' + x[1] + '>') for x in cur.execute('SELECT sector, owner FROM claims WHERE owner = ?', (player,)).fetchall()]
+        if not claimed_sectors:
+            return 'No sectors claimed by this player'
+    else:
+        claimed_sectors = [x[0] + (' <' + x[1] + '>' if x[1] else ' [reserved]') for x in cur.execute('SELECT sector, owner FROM claims').fetchall()]
     cur.close()
     return ', '.join(claimed_sectors)
 

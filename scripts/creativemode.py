@@ -109,6 +109,7 @@ def clear_ammo(connection, player):
     player.weapon_object.clip_ammo = 0
     player.weapon_object.reserve_ammo = 0
     player.send_contained(weapon_reload)
+    return "%s's ammo has been cleared" % player.name
 
 
 def apply_script(protocol, connection, config):

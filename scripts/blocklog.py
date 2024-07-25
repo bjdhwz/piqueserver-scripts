@@ -17,7 +17,9 @@ from twisted.internet.task import LoopingCall
 from piqueserver.commands import command, get_player
 from piqueserver.config import config
 from pyspades.bytes import ByteReader
-from pyspades.common import escape_control_codes, coordinates
+from pyspades.common import coordinates, escape_control_codes, make_color
+from pyspades.constants import BUILD_BLOCK, DESTROY_BLOCK
+from pyspades.contained import BlockAction, SetColor
 from pyspades.packet import load_client_packet
 from pyspades import contained as loaders
 
@@ -30,7 +32,7 @@ cur_log.execute('CREATE TABLE IF NOT EXISTS blocklog(id INTEGER PRIMARY KEY, tim
 con_log.commit()
 cur_log.close()
 
-results_per_page = 5
+results_per_page = 6
 
 @command('history', 'h', 'i')
 def history(connection):
@@ -43,6 +45,23 @@ def history(connection):
         return "History mode enabled"
     else:
         return "History mode disabled"
+
+@command()
+def blocks(connection, player=None):
+    """
+    Total amount of blocks placed by player
+    /blocks <player>
+    """
+    if not player:
+        player = connection.name
+    cur = con.cursor()
+    sessions = [x[0] for x in cur.execute('SELECT id FROM sessions WHERE user = ?', (player,)).fetchall()]
+    cur.close()
+    cur_log = con_log.cursor()
+    block_count = cur_log.execute('SELECT COUNT(*) FROM blocklog WHERE action = 1 AND session IN (%s)' %
+        ','.join('?'*len(sessions)), sessions).fetchone()[0]
+    cur_log.close()
+    return "%s placed %s blocks" % (player, block_count)
 
 
 def apply_script(protocol, connection, config):
@@ -107,7 +126,10 @@ def apply_script(protocol, connection, config):
             xyz = x << 15 | y << 6 | z
             r, g, b = self.color
             color = r << 16 | g << 8 | b
-            self.protocol.blocklog_queue += [(int(datetime.datetime.now(datetime.UTC).timestamp()), xyz, self.session, True, color, False,)]
+            timestamp = int(datetime.datetime.now(datetime.UTC).timestamp())
+            self.protocol.blocklog_queue = [None if (x[1] == xyz and x[3] == True) else x for x in self.protocol.blocklog_queue] # reduce repeating entries (e.g. from painting)
+            self.protocol.blocklog_queue = [x for x in self.protocol.blocklog_queue if x]
+            self.protocol.blocklog_queue += [(timestamp, xyz, self.session, True, color, False,)]
 
         def on_line_build(self, points):
             if connection.on_line_build(self, points) == False:
@@ -157,7 +179,7 @@ def apply_script(protocol, connection, config):
                                 )
                                 cur.close()
                             self.send_chat("[Page %s]" % self.number_of_clicks)
-                            if len(res) < 5:
+                            if len(res) < results_per_page:
                                 self.number_of_clicks = 0
                         else:
                             self.number_of_clicks = 0
@@ -168,9 +190,11 @@ def apply_script(protocol, connection, config):
 
         def on_shoot_set(self, state):
             self.check_block_history(state, False)
+            connection.on_shoot_set(self, state)
 
         def on_secondary_fire_set(self, state):
             self.check_block_history(state, True)
+            connection.on_secondary_fire_set(self, state)
 
         def on_disconnect(self):
             self.protocol.commit_blocklog_queue()

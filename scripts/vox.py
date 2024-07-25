@@ -1,10 +1,10 @@
 """
-Builds models created in MagicaVoxel voxel editor on the map
+Builds and saves models in MagicaVoxel format
 Put your *.vox files in ~/config/vox folder
 
 Requires numpy
 
-Credits to VoxBox project for MagicaVoxel format import code: https://github.com/DavidWilliams81/voxbox
+Credits to VoxBox project for code to handle MagicaVoxel format: https://github.com/DavidWilliams81/voxbox
 
 Commands
 ^^^^^^^^
@@ -23,9 +23,11 @@ from pyspades.constants import BUILD_BLOCK, DESTROY_BLOCK
 from pyspades.contained import BlockAction, SetColor
 from pyspades import contained as loaders
 
+voxdir = os.path.join(config.config_dir, 'vox')
 
-def build(con, x, y, z, rgb):
-    dither = random.choice(range(-3, 2))
+
+def build(con, x, y, z, rgb, dither):
+    dither = random.choice(range(-dither-1, dither))
     rgb = [value + dither for value in rgb]
     rgb = [255 if value > 255 else value for value in rgb]
     rgb = tuple([0 if value < 0 else value for value in rgb])
@@ -42,14 +44,13 @@ def build(con, x, y, z, rgb):
     con.protocol.broadcast_contained(block_action)
     con.protocol.map.set_point(x, y, z, rgb)
 
-@command()
-def loadvox(con, fn):
+@command(admin_only=True)
+def loadvox(con, fn, dither=2):
     """
     Place .vox file
-    /loadvox <filename>
+    /loadvox <filename> <dither 0-127 (default 2)>
     """
     px, py, pz = con.get_location()
-    voxdir = os.path.join(config.config_dir, 'vox')
     paths = [x[:-4] for x in os.listdir(voxdir) if x.endswith('.vox')]
     if fn in paths:
         path = os.path.join(voxdir, fn + '.vox')
@@ -60,19 +61,158 @@ def loadvox(con, fn):
             for y in range(len(layer[0])):
                 for z in range(len(layer[0][0])):
                     if layer[x][y][z] != 0:
-                        build(con, int(px)+x, int(py)+y, int(pz)-z+2, palette[layer[x][y][z]][:3])
+                        build(con, int(px)+x, int(py)+y, int(pz)-z+2, palette[layer[x][y][z]][:3], dither)
     else:
         return 'Model not found'
 
+@command(admin_only=True)
+def savevox(con, fn=None):
+    """
+    Save selection into a .vox file
+    /savevox <filename>
+    """
+    if fn:
+        if con.savevox_point_a:
+            if con.savevox_point_b:
+                c = list(zip(con.savevox_point_a, con.savevox_point_b))
+                v = np.zeros((max(c[2])-min(c[2])+1, max(c[1])-min(c[1])+1, max(c[0])-min(c[0])+1), np.uint8)
+                palette = [(0, 0, 0, 0)]
+                for x in range(min(c[0]), max(c[0])+1):
+                    for y in range(min(c[1]), max(c[1])+1):
+                        for z in range(min(c[2]), max(c[2])+1):
+                            color = con.protocol.world.map.get_color(x, y, z)
+                            if color:
+                                r, g, b = color
+                                rgba = (r, g, b, 255)
+                                if rgba not in palette:
+                                    palette += [rgba]
+                                i = palette.index(rgba)
+                                if i > 255:
+                                    return "Can't save more than 255 colors"
+                            else:
+                                i = 0
+                            v[max(c[2])-z][max(c[1])-y][x-min(c[0])] = i
+                write([v], fn, np.array(palette, np.uint8))
+                con.savevox_selection = False
+                con.savevox_point_a = None
+                con.savevox_point_b = None
+                return 'File saved'
+        return 'Create selection first'
+    else:
+        if con.savevox_selection:
+            con.savevox_selection = False
+            con.savevox_point_a = None
+            con.savevox_point_b = None
+            return 'Selection cancelled'
+        else:
+            con.savevox_selection = True
+            con.savevox_point_a = None
+            con.savevox_point_b = None
+            return 'Selection started. Select two points by clicking on corner blocks'
+
 
 def apply_script(protocol, connection, config):
-    return protocol, connection
+    class VoxConnection(connection):
+        savevox_selection = False
+        savevox_point_a = None
+        savevox_point_b = None
+
+        def on_shoot_set(self, state):
+            if self.savevox_selection:
+                if state == True:
+                    coords = self.world_object.cast_ray(128)
+                    if self.savevox_point_a:
+                        self.savevox_point_b = coords
+                        self.send_chat('Selection created. Use /savevox <filename> to save selected area')
+                    else:
+                        self.savevox_point_a = coords
+                        self.send_chat('First corner has been selected')
+            connection.on_shoot_set(self, state)
+
+    return protocol, VoxConnection
 
 
 """
-Code for reading MagicaVoxel files
+Code for working with MagicaVoxel files
 All credits to VoxBox project: https://github.com/DavidWilliams81/voxbox
 """
+
+def write_chunk(id, chunk_content, child_chunks):
+    
+    data = bytearray(id)
+    
+    chunk_content_length = len(chunk_content) if chunk_content else 0
+    child_chunks_length = len(child_chunks) if child_chunks else 0
+    data = data + struct.pack('ii', chunk_content_length, child_chunks_length)
+    
+    if chunk_content:
+        data = data + chunk_content
+        
+    if child_chunks:
+        data = data + child_chunks
+    return data
+
+def write_size_chunk(volume):
+    
+    chunk_content = struct.pack('iii', len(volume[0][0]), len(volume[0]), len(volume))
+    return write_chunk(b'SIZE', chunk_content, None)
+    
+def write_xyzi_chunk(volume):
+    
+    values = np.extract(volume, volume)
+    (x, y, z) = np.nonzero(volume)
+    voxels = np.stack([z.astype(np.uint8), y.astype(np.uint8), x.astype(np.uint8), values])
+    voxels = voxels.transpose()
+    voxels = voxels.reshape(-1)
+    
+    chunk_content = struct.pack('i', len(values))
+    chunk_content += bytearray(voxels.tobytes())
+                    
+    return write_chunk(b'XYZI', chunk_content, None)
+    
+def write_pack_chunk(volume_list):
+    
+    chunk_content = struct.pack('i', len(volume_list))
+    return write_chunk(b'PACK', chunk_content, None)
+    
+def write_rgba_chunk(palette):
+    
+    chunk_content = bytearray(palette[1:256].tobytes())
+    chunk_content += struct.pack('xxxx')    
+    return write_chunk(b'RGBA', chunk_content, None) 
+
+def write_main_chunk(volume_list, palette):
+    
+    child_chunks  = write_pack_chunk(volume_list)
+    for volume in volume_list:
+        child_chunks += write_size_chunk(volume)
+        child_chunks += write_xyzi_chunk(volume)
+    
+    if palette is not None:
+        child_chunks += write_rgba_chunk(palette)
+    
+    return write_chunk(b'MAIN', None, child_chunks)
+    
+# This function expects a *list* of 3D NumPy arrays. If you only
+# have one ( a single frame) then create a single element list.
+def write(volume_list, filename, palette = None):
+    
+    if not isinstance(volume_list, list):
+        raise TypeError("Argument 'volume_list' should be a list")
+        
+    if not all(type(volume) is np.ndarray for volume in volume_list):
+        raise TypeError("All elements of 'volume_list' must be NumPy arrays")
+        
+    if not all(volume.ndim == 3 for volume in volume_list):
+        raise TypeError("All volumes in 'volume_list' must be 3D")
+    
+    data = bytearray(b'VOX ')
+    data = data + struct.pack('i', 150);
+    data = data + write_main_chunk(volume_list, palette)
+    
+    file = open(os.path.join(voxdir, filename + '.vox'), "wb")
+    file.write(data)
+    file.close()
 
 def read_chunk(data):
     

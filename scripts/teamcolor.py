@@ -19,19 +19,19 @@ from pyspades.color import interpolate_rgb
 
 @command('bluecolor', 'team1color', 't1c', admin_only=True)
 def team1_color(connection, r, g, b):
-    connection.protocol.send_connection_data(team1_color = (int(r), int(g), int(b)))
+    connection.protocol.send_teamdata(team1_color = (int(r), int(g), int(b)))
 
 @command('greencolor', 'team2color', 't2c', admin_only=True)
 def team2_color(connection, r, g, b):
-    connection.protocol.send_connection_data(team2_color = (int(r), int(g), int(b)))
+    connection.protocol.send_teamdata(team2_color = (int(r), int(g), int(b)))
 
 @command('bluename', 'team1name', 't1n', admin_only=True)
 def team1_name(connection, name):
-    connection.protocol.send_connection_data(team1_name = name)
+    connection.protocol.send_teamdata(team1_name = name)
 
 @command('greenname', 'team2name', 't2n', admin_only=True)
 def team1_name(connection, name):
-    connection.protocol.send_connection_data(team2_name = name)
+    connection.protocol.send_teamdata(team2_name = name)
 
 def hex2rgb(h):
     h = h.strip('#')
@@ -69,7 +69,7 @@ def apply_script(protocol, connection, config):
         team_interval = None
         team_n = 0
 
-        def send_connection_data(self, team1_color = None, team2_color = None, team1_name = None, team2_name = None):
+        def send_teamdata(self, team1_color = None, team2_color = None, team1_name = None, team2_name = None):
             if team1_color:
                 self.team1_color = team1_color
                 self.blue_team.color = team1_color
@@ -143,14 +143,14 @@ def apply_script(protocol, connection, config):
                 if self.team_n % self.team_interval == 0:
                     self.team_colors = [self.team_colors[-1], (choice(range(255)), choice(range(255)), choice(range(255)))]
                 clr = interpolate_rgb(self.team_colors[0], self.team_colors[1], self.team_n % self.team_interval / self.team_interval)
-                self.send_connection_data(team1_color = clr)
-                self.send_connection_data(team2_color = (255 - clr[0], 255 - clr[1], 255 - clr[2]))
+                self.send_teamdata(team1_color = clr)
+                self.send_teamdata(team2_color = (255 - clr[0], 255 - clr[1], 255 - clr[2]))
             else:
                 color_a = self.team_n % (len(self.team_colors) * self.team_interval) // self.team_interval
                 color_b = (self.team_n + self.team_interval) % (len(self.team_colors) * self.team_interval) // self.team_interval
                 clr = interpolate_rgb(self.team_colors[color_a], self.team_colors[color_b], self.team_n % self.team_interval / self.team_interval)
-                self.send_connection_data(team1_color = clr)
-                self.send_connection_data(team2_color = (255 - clr[0], 255 - clr[1], 255 - clr[2]))
+                self.send_teamdata(team1_color = clr)
+                self.send_teamdata(team2_color = (255 - clr[0], 255 - clr[1], 255 - clr[2]))
             self.team_n += 1
 
         def start_team_cycle(self, interval, colors=[], is_random=False):
@@ -170,7 +170,7 @@ def apply_script(protocol, connection, config):
         def stop_team_cycle(self):
             self.team_loop.stop()
             self.is_team_active = False
-            self.send_connection_data(team1_color = self.original_team_colors[0])
-            self.send_connection_data(team2_color = self.original_team_colors[1])
+            self.send_teamdata(team1_color = self.original_team_colors[0])
+            self.send_teamdata(team2_color = self.original_team_colors[1])
 
     return TeamColorProtocol, connection

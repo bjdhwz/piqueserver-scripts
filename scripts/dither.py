@@ -1,5 +1,5 @@
 """
-Build using slightly randomized colors
+Build using slightly randomized colors.
 
 Commands
 ^^^^^^^^
@@ -18,25 +18,37 @@ from pyspades import contained as loaders
 
 
 @command('dither', 'd')
-def dither(connection, value=2):
+def dither(con, value=3):
     """
     Toggle color dithering
-    /dither <value> - higher values make color more random
+    /dither <1-127> - higher values make colors more random
     """
     try:
-        value = int(value)
+        v = int(value)
     except:
         return 'Value should be a number'
-    if connection.dithering:
-        connection.dithering = 0
-        return 'Color dithering disabled'
-    else:
-        connection.dithering = value
-        return 'Color dithering enabled'
+    if type(value) == type(''): # user entered value
+        if con.dithering == v:
+            con.dithering = 0
+            return 'Color dithering disabled'
+        else:
+            if con.dithering:
+                con.dithering = v
+                return 'Color dithering value changed'
+            else:
+                con.dithering = v
+                return 'Color dithering enabled'
+    else: # user didn't enter value
+        if con.dithering:
+            con.dithering = 0
+            return 'Color dithering disabled'
+        else:
+            con.dithering = v
+            return 'Color dithering enabled'
 
-def build(con, x, y, z):
+def set_dither(con, x, y, z):
     noise = choice(range(-con.dithering-1, con.dithering))
-    rgb = [value + noise for value in con.color]
+    rgb = [value + noise for value in con.dithercolor]
     rgb = [255 if value > 255 else value for value in rgb]
     rgb = tuple([0 if value < 0 else value for value in rgb])
 
@@ -44,37 +56,45 @@ def build(con, x, y, z):
     set_color.player_id = con.player_id
     set_color.value = make_color(*rgb)
     con.protocol.broadcast_contained(set_color)
+    con.color = rgb
 
+def build(con, x, y, z):
     block_action = BlockAction()
     block_action.player_id = con.player_id
-    block_action.value = BUILD_BLOCK
     block_action.x = x
     block_action.y = y
     block_action.z = z
-    con.protocol.broadcast_contained(block_action)
-
-    con.protocol.map.set_point(x, y, z, rgb)
+    block_action.value = DESTROY_BLOCK
+    con.protocol.broadcast_contained(block_action, save=True)
+    block_action.value = BUILD_BLOCK
+    con.protocol.broadcast_contained(block_action, save=True)
+    con.protocol.map.set_point(x, y, z, con.color)
 
 
 def apply_script(protocol, connection, config):
     class DitheringConnection(connection):
+        dithercolor = None
         dithering = 0
+
+        def on_color_set(self, color):
+            self.dithercolor = color
+            connection.on_color_set(self, color)
 
         def on_block_build_attempt(self, x, y, z):
             if connection.on_block_build_attempt(self, x, y, z) == False:
                 return False
             if self.dithering:
-                build(self, x, y, z)
-                connection.on_block_build(self, x, y, z)
-                return False
+                set_dither(self, x, y, z)
+                connection.on_block_build(self, x, y, z) # for block logging
 
         def on_line_build_attempt(self, points):
             if connection.on_line_build_attempt(self, points) == False:
                 return False
             if self.dithering:
                 for point in points:
+                    set_dither(self, *point)
                     build(self, *point)
-                connection.on_line_build(self, points)
+                    connection.on_block_build(self, *point) # for block logging
                 return False
 
     return protocol, DitheringConnection
