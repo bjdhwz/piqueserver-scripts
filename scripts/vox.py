@@ -28,7 +28,7 @@ voxdir = os.path.join(config.config_dir, 'vox')
 
 def build(con, x, y, z, rgb, dither):
     dither = random.choice(range(-dither-1, dither))
-    rgb = [value + dither for value in rgb]
+    rgb = [int(value) + dither for value in rgb]
     rgb = [255 if value > 255 else value for value in rgb]
     rgb = tuple([0 if value < 0 else value for value in rgb])
     set_color = SetColor()
@@ -92,6 +92,7 @@ def savevox(con, fn=None):
                             else:
                                 i = 0
                             v[max(c[2])-z][max(c[1])-y][x-min(c[0])] = i
+                palette = np.pad(palette, ((0, 256-len(palette)), (0, 0)))
                 write([v], fn, np.array(palette, np.uint8))
                 con.savevox_selection = False
                 con.savevox_point_a = None
