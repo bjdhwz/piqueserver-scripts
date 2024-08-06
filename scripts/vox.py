@@ -27,7 +27,7 @@ voxdir = os.path.join(config.config_dir, 'vox')
 
 
 def build(con, x, y, z, rgb, dither):
-    dither = random.choice(range(-dither-1, dither))
+    dither = random.choice(range(-int(dither)-1, int(dither)))
     rgb = [int(value) + dither for value in rgb]
     rgb = [255 if value > 255 else value for value in rgb]
     rgb = tuple([0 if value < 0 else value for value in rgb])
@@ -45,10 +45,10 @@ def build(con, x, y, z, rgb, dither):
     con.protocol.map.set_point(x, y, z, rgb)
 
 @command(admin_only=True)
-def loadvox(con, fn, dither=2):
+def loadvox(con, fn=None, dither=0, rotate=''):
     """
-    Place .vox file
-    /loadvox <filename> <dither 0-127 (default 2)>
+    Place .vox file. Model is rotated according to player orientation.
+    /loadvox <filename> <dither 0-127 (default 0)> <rotate ([x[-axis], y[-axis], z[-axis]), flip (h[orizontal], v[ertical]) - can be combined>
     """
     px, py, pz = con.get_location()
     paths = [x[:-4] for x in os.listdir(voxdir) if x.endswith('.vox')]
@@ -56,14 +56,26 @@ def loadvox(con, fn, dither=2):
         path = os.path.join(voxdir, fn + '.vox')
         data, palette = read(path)
         layer = data[0]
-        layer = np.rot90(layer, axes=(0,2))
+        rotate += 'y'
+        for char in rotate:
+            if char == 'x':
+                layer = np.rot90(layer, axes=(0,1))
+            elif char == 'y':
+                layer = np.rot90(layer, axes=(0,2))
+            elif char == 'z':
+                layer = np.rot90(layer, axes=(1,2))
+            elif char == 'h':
+                layer = np.fliplr(layer)
+            elif char == 'v':
+                layer = np.flipud(layer)
         for x in range(len(layer)):
             for y in range(len(layer[0])):
                 for z in range(len(layer[0][0])):
                     if layer[x][y][z] != 0:
-                        build(con, int(px)+x, int(py)+y, int(pz)-z+2, palette[layer[x][y][z]][:3], dither)
+                        build(con, int(px)+x+1, int(py)+y+1, int(pz)-z+2, palette[layer[x][y][z]][:3], dither)
+        return 'Model loaded'
     else:
-        return 'Model not found'
+        return 'Available models: ' + ', '.join(paths)
 
 @command(admin_only=True)
 def savevox(con, fn=None):
@@ -91,7 +103,7 @@ def savevox(con, fn=None):
                                     return "Can't save more than 255 colors"
                             else:
                                 i = 0
-                            v[max(c[2])-z][max(c[1])-y][x-min(c[0])] = i
+                            v[max(c[2])-z][y-min(c[1])][max(c[0])-x] = i
                 palette = np.pad(palette, ((0, 256-len(palette)), (0, 0)))
                 write([v], fn, np.array(palette, np.uint8))
                 con.savevox_selection = False

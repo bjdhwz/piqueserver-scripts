@@ -316,7 +316,7 @@ def apply_script(protocol, connection, config):
         def __init__(self, *arg, **kw):
             protocol.__init__(self, *arg, **kw)
             self.sector_names_loop = LoopingCall(self.display_sector_name)
-            self.sector_names_loop.start(2)
+            self.sector_names_loop.start(1)
 
         def display_sector_name(self):
             for player in self.players.values():
@@ -329,7 +329,7 @@ def apply_script(protocol, connection, config):
                     cur.close()
                     if name:
                         if name[0]:
-                            player.send_chat("Welcome to %s" % name[0])
+                            player.send_cmsg("Welcome to %s" % name[0], 'Status')
                     player.current_sector = get_sector(x, y)
 
         def is_claimed(self, x, y, z):

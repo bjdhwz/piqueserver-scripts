@@ -19,7 +19,7 @@ from pyspades.common import make_color
 from pyspades.contained import SetColor
 
 
-@command('clr', 'setcolor')
+@command('clr', 'setcolor', 'color')
 def setcolor(connection, *args):
     """
     Set current block color

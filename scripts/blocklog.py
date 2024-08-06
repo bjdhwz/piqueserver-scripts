@@ -71,6 +71,7 @@ def apply_script(protocol, connection, config):
         history_mode = False
         last_checked_block = None
         number_of_clicks = 0
+        last_cast_ray_block = None
 
         def on_block_destroy(self, x, y, z, value):
             if self.history_mode:
@@ -113,12 +114,12 @@ def apply_script(protocol, connection, config):
                         xyz = x << 15 | y << 6 | z-(i-1)
                         r, g, b = self.block_destroy_color[i]
                         color = r << 16 | g << 8 | b
-                        self.protocol.blocklog_queue += [(int(datetime.datetime.now(datetime.UTC).timestamp()), xyz, self.session, False, color, False,)]
+                        self.protocol.blocklog_queue += [(int(datetime.datetime.now(datetime.timezone.utc).timestamp()), xyz, self.session, False, color, False,)]
             elif type(self.block_destroy_color[0]) == type(int()):
                 xyz = x << 15 | y << 6 | z
                 r, g, b = self.block_destroy_color
                 color = r << 16 | g << 8 | b
-                self.protocol.blocklog_queue += [(int(datetime.datetime.now(datetime.UTC).timestamp()), xyz, self.session, False, color, False,)]
+                self.protocol.blocklog_queue += [(int(datetime.datetime.now(datetime.timezone.utc).timestamp()), xyz, self.session, False, color, False,)]
 
         def on_block_build(self, x, y, z):
             if connection.on_block_build(self, x, y, z) == False:
@@ -126,7 +127,7 @@ def apply_script(protocol, connection, config):
             xyz = x << 15 | y << 6 | z
             r, g, b = self.color
             color = r << 16 | g << 8 | b
-            timestamp = int(datetime.datetime.now(datetime.UTC).timestamp())
+            timestamp = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
             self.protocol.blocklog_queue = [None if (x[1] == xyz and x[3] == True) else x for x in self.protocol.blocklog_queue] # reduce repeating entries (e.g. from painting)
             self.protocol.blocklog_queue = [x for x in self.protocol.blocklog_queue if x]
             self.protocol.blocklog_queue += [(timestamp, xyz, self.session, True, color, False,)]
@@ -139,7 +140,41 @@ def apply_script(protocol, connection, config):
                 xyz = x << 15 | y << 6 | z
                 r, g, b = self.color
                 color = r << 16 | g << 8 | b
-                self.protocol.blocklog_queue += [(int(datetime.datetime.now(datetime.UTC).timestamp()), xyz, self.session, True, color, False,)]
+                self.protocol.blocklog_queue += [(int(datetime.datetime.now(datetime.timezone.utc).timestamp()), xyz, self.session, True, color, False,)]
+
+        def on_orientation_update(self, x, y, z):
+            if self.history_mode:
+                if self.world_object.cast_ray(8) != self.last_cast_ray_block:
+                    self.last_cast_ray_block = self.world_object.cast_ray(8)
+                    if self.last_cast_ray_block:
+                        x, y, z = self.last_cast_ray_block
+                        xyz = x << 15 | y << 6 | z
+                        cur_log = con_log.cursor()
+                        res = cur_log.execute('SELECT id, timestamp, xyz, session, action, color, undone FROM blocklog WHERE xyz = ?', (
+                            xyz,)).fetchone()
+                        cur_log.close()
+                        if res:
+                            action_id, timestamp, xyz, session, action, color, undone = res
+                            cur = con.cursor()
+                            self.send_cmsg("ID%s | %s | %s %s %s (%s) | %s | <%s> %s #%02X%02X%02X %s" % (
+                                action_id,
+                                datetime.datetime.fromtimestamp(timestamp).isoformat(sep=' ')[:19],
+                                (xyz >> 15) & 511,
+                                (xyz >> 6) & 511,
+                                xyz & 63,
+                                chr(int(x // 64) + ord('A')) + str(y // 64 + 1),
+                                session,
+                                cur.execute('SELECT user FROM sessions WHERE id = ?', (session,)).fetchone()[0],
+                                'placed' if action else 'broke',
+                                (color >> 16) & 255, (color >> 8) & 255, color & 255,
+                                '[rollbacked]' if undone else '',
+                                ),
+                                'Notice'
+                            )
+                            cur.close()
+                        else:
+                            self.send_cmsg("No history found for these coordinates", 'Notice')
+            connection.on_orientation_update(self, x, y, z)
 
         def check_block_history(self, state, rightclick):
             if self.history_mode:
@@ -163,7 +198,7 @@ def apply_script(protocol, connection, config):
                             for i in res:
                                 action_id, timestamp, xyz, session, action, color, undone = i
                                 cur = con.cursor()
-                                self.send_chat("ID%s | %s | %s %s %s (%s) | %s | <%s> %s #%02X%02X%02X %s" % (
+                                self.send_chat("ID%s | %s | %s %s %s (%s) | %s | <%s> %s #%02X%02X%02X %s \0" % (
                                     action_id,
                                     datetime.datetime.fromtimestamp(timestamp).isoformat(sep=' ')[:19],
                                     (xyz >> 15) & 511,
@@ -172,7 +207,7 @@ def apply_script(protocol, connection, config):
                                     chr(int(x // 64) + ord('A')) + str(y // 64 + 1),
                                     session,
                                     cur.execute('SELECT user FROM sessions WHERE id = ?', (session,)).fetchone()[0],
-                                    'placed' if action else 'broke',
+                                    '\5placed\6' if action else '\4broke\6',
                                     (color >> 16) & 255, (color >> 8) & 255, color & 255,
                                     '[rollbacked]' if undone else '',
                                     )

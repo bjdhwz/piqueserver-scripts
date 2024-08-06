@@ -17,15 +17,24 @@ Commands
 from piqueserver.commands import command, target_player
 from pyspades import contained as loaders
 from pyspades.common import coordinates
+from twisted.internet.task import LoopingCall
 
 HIDE_POS = (-256, -256, 63)
 
+ALL_SECTORS = [chr(x // 8 + ord('A')) + str(x % 8 + 1) for x in range(64)]
 
-def do_move(connection, sector, silent=False):
+
+def do_move(connection, sector, silent=False, top=False):
     x, y = coordinates(sector)
     x += 32
     y += 32
-    z = connection.protocol.map.get_height(x, y) - 2
+    if top:
+        for i in range(64):
+            if connection.protocol.map.get_solid(x, y, i):
+                z = i - 2
+                break
+    else:
+        z = connection.protocol.map.get_height(x, y) - 2
     connection.set_location((x, y, z))
     if not silent:
         connection.protocol.broadcast_chat('%s teleported to %s' % (connection.name, sector))
@@ -36,7 +45,6 @@ def gt(connection, sector):
     Teleport to a sector
     /gt <sector>
     """
-    ALL_SECTORS = [chr(x // 8 + ord('A')) + str(x % 8 + 1) for x in range(64)]
     sector = sector.upper()
     if sector not in ALL_SECTORS:
         return "Invalid sector. Example of a sector: A1"
@@ -48,11 +56,32 @@ def gts(connection, sector):
     Teleport to a sector silently
     /gts <sector>
     """
-    ALL_SECTORS = [chr(x // 8 + ord('A')) + str(x % 8 + 1) for x in range(64)]
     sector = sector.upper()
     if sector not in ALL_SECTORS:
         return "Invalid sector. Example of a sector: A1"
     do_move(connection, sector, True)
+
+@command('gtop', 'go')
+def gtop(connection, sector):
+    """
+    Teleport to a sector (always overground)
+    /gtop <sector>
+    """
+    sector = sector.upper()
+    if sector not in ALL_SECTORS:
+        return "Invalid sector. Example of a sector: A1"
+    do_move(connection, sector, top=True)
+
+@command('gtops', 'gos', admin_only=True)
+def gtops(connection, sector):
+    """
+    Teleport to a sector silently (always overground)
+    /gtops <sector>
+    """
+    sector = sector.upper()
+    if sector not in ALL_SECTORS:
+        return "Invalid sector. Example of a sector: A1"
+    do_move(connection, sector, True, top=True)
 
 @command('f', 'fly')
 def fly_shortcut(connection):
@@ -92,11 +121,33 @@ def pos(connection):
     x, y, z = connection.get_location()
     return '(%s, %s, %s)' % (str(int(x)), str(int(y)), str(int(z)))
 
+@command()
+def info(connection):
+    """
+    Display coordinates and color of the block that you're looking at
+    /info
+    """
+    connection.info_mode = not connection.info_mode
+
+@command()
+def netstat(connection):
+    """
+    Monitor latency
+    /netstat
+    """
+    connection.netstat_mode = not connection.netstat_mode
+    if connection.netstat_mode:
+        connection.latency_history = [0] * 30
+        connection.netstat_loop = LoopingCall(connection.update_netstat)
+        connection.netstat_loop.start(1)
+    else:
+        connection.netstat_loop.stop()
+
 @command('clearammo', 'ca', admin_only=True)
 @target_player
 def clear_ammo(connection, player):
     """
-    Removes player's ammo
+    Remove player's ammo
     /clearammo
     """
     weapon_reload = loaders.WeaponReload()
@@ -111,9 +162,31 @@ def clear_ammo(connection, player):
     player.send_contained(weapon_reload)
     return "%s's ammo has been cleared" % player.name
 
-
 def apply_script(protocol, connection, config):
     class NoCaptureConnection(connection):
+
+        info_mode = False
+        info_cur = None
+        netstat_mode = False
+        latency_history = []
+
+        def update_netstat(self):
+            blocks = '▁▂▃▄▅▆▇█'
+            if len(self.latency_history) == 30:
+                self.latency_history = self.latency_history[1:]
+            self.latency_history += [self.latency]
+            l = self.latency_history
+            base = min([x for x in l if x])
+            mul = 7/(max(l)-base+1)
+            l = [blocks[round((x-base)*mul)] if x else blocks[0] for x in l]
+            self.send_cmsg(''.join(l) + ' ' + str(self.latency) + 'ms', 'Notice')
+
+        def on_disconnect(self):
+            try: # might already not exist when called
+                self.netstat_loop.stop()
+            except:
+                pass
+            return connection.on_disconnect(self)
 
         def on_flag_take(self):
             return False
@@ -158,6 +231,13 @@ def apply_script(protocol, connection, config):
                     return False
             if self.team.id == 1:
                 return False
+
+        def on_orientation_update(self, x, y, z):
+            if self.info_mode:
+                if self.world_object.cast_ray(128) != self.info_cur:
+                    self.info_cur = self.world_object.cast_ray(128)
+                    self.send_cmsg(str(self.info_cur) + ' #%02X%02X%02X ' % self.protocol.map.get_color(*self.info_cur) + str(self.protocol.map.get_color(*self.info_cur)), 'Notice')
+            connection.on_orientation_update(self, x, y, z)
 
     class NoCaptureProtocol(protocol):
 
