@@ -35,7 +35,7 @@ def do_move(connection, sector, silent=False, top=False):
                 break
     else:
         z = connection.protocol.map.get_height(x, y) - 2
-    connection.set_location((x, y, z))
+    connection.set_location((x-0.5, y-0.5, z))
     if not silent:
         connection.protocol.broadcast_chat('%s teleported to %s' % (connection.name, sector))
 
