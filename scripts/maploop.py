@@ -1,5 +1,5 @@
 """
-Creates infinite seamless map effect by teleporting players when they reach map border.
+Creates effect of infinite and seamless map by teleporting players when they reach map edge.
 
 .. codeauthor:: Liza
 """
@@ -26,17 +26,41 @@ def apply_script(protocol, connection, config):
                         self.map_loop_restart()
 
                 if x < 1:
-                    self.set_location((512.4-0.5, y-0.5, z+0.5))
-                    self.map_loop_timeout = 40
+                    z += 0.5
+                    zc = z - int(self.world_object.crouch)
+                    if self.protocol.map.get_solid(511, y, zc + 1):
+                        z -= 1
+                    if not self.protocol.map.get_solid(511, y, zc) and not self.protocol.map.get_solid(511, y, zc - 1):
+                        self.set_location_safe((511.9, y - 0.5, z))
+                        self.map_loop_timeout = 80
+
                 if x > 510.9:
-                    self.set_location((-0.45-0.5, y-0.5, z+0.5))
-                    self.map_loop_timeout = 40
+                    z += 0.5
+                    zc = z - int(self.world_object.crouch)
+                    if self.protocol.map.get_solid(0, y, zc + 1):
+                        z -= 1
+                    if not self.protocol.map.get_solid(0, y, zc) and not self.protocol.map.get_solid(0, y, zc - 1):
+                        self.set_location_safe((-0.95, y - 0.5, z))
+                        self.map_loop_timeout = 80
+
                 if y < 1:
-                    self.set_location((x-0.5, 512.4-0.5, z+0.5))
-                    self.map_loop_timeout = 40
+                    z += 0.5
+                    zc = z - int(self.world_object.crouch)
+                    if self.protocol.map.get_solid(x, 511, zc + 1):
+                        z -= 1
+                    if not self.protocol.map.get_solid(x, 511, zc) and not self.protocol.map.get_solid(x, 511, zc - 1):
+                        self.set_location_safe((x - 0.5, 511.9, z))
+                        self.map_loop_timeout = 80
+
                 if y > 510.9:
-                    self.set_location((x-0.5, -0.45-0.5, z+0.5))
-                    self.map_loop_timeout = 40
+                    z += 0.5
+                    zc = z - int(self.world_object.crouch)
+                    if self.protocol.map.get_solid(x, 0, zc + 1):
+                        z -= 1
+                    if not self.protocol.map.get_solid(x, 0, zc) and not self.protocol.map.get_solid(x, 0, zc - 1):
+                        self.set_location_safe((x - 0.5, -0.95, z))
+                        self.map_loop_timeout = 80
+
             else:
                 self.map_loop_timeout -= 1
 

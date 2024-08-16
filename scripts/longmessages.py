@@ -13,9 +13,9 @@ from pyspades.packet import register_packet_handler
 
 log = Logger()
 
-## 108 - original piqueserver chat message limit. Used as line wrap length.
-## 199 - max length that can be typed in through OpenSpades in-game interface at 1920x1080 resolution. Longer messages can only be pasted in.
-## 216 - two lines wrap length.
+## 100 - apparently 108 might be too long for IV of Spades client. Used as line wrap length.
+## 108 - original piqueserver chat message limit.
+## 199 - max length that can be typed in through OpenSpades in-game interface at 1920x1080 resolution. Longer messages can only be pasted in and should contain line breaks.
 ## 255 - max length that can be pasted into OpenSpades.
 MAX_CHAT_MSG_LEN = 255
 
@@ -49,7 +49,7 @@ def apply_script(protocol, connection, config):
             if value.startswith('/'):
                 self.on_command(*parse_command(value[1:]))
             else:
-                value = '\n'.join(textwrap.wrap(value, 108))
+                value = '\n'.join(textwrap.wrap(value, 100))
                 global_message = contained.chat_type == CHAT_ALL
                 result = self.on_chat(value, global_message)
                 if result == False:

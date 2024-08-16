@@ -156,9 +156,9 @@ def apply_script(protocol, connection, config):
                         if res:
                             action_id, timestamp, xyz, session, action, color, undone = res
                             cur = con.cursor()
-                            self.send_cmsg("ID%s | %s | %s %s %s (%s) | %s | <%s> %s #%02X%02X%02X %s" % (
+                            self.send_cmsg("%s | %s | %s %s %s %s | %s | %s %s #%02X%02X%02X %s" % (
                                 action_id,
-                                datetime.datetime.fromtimestamp(timestamp).isoformat(sep=' ')[:19],
+                                datetime.datetime.fromtimestamp(timestamp).isoformat(sep=' ')[2:16],
                                 (xyz >> 15) & 511,
                                 (xyz >> 6) & 511,
                                 xyz & 63,
@@ -198,9 +198,9 @@ def apply_script(protocol, connection, config):
                             for i in res:
                                 action_id, timestamp, xyz, session, action, color, undone = i
                                 cur = con.cursor()
-                                self.send_chat("ID%s | %s | %s %s %s (%s) | %s | <%s> %s #%02X%02X%02X %s \0" % (
+                                self.send_chat("%s | %s | %s %s %s %s | %s | %s %s #%02X%02X%02X %s \0" % (
                                     action_id,
-                                    datetime.datetime.fromtimestamp(timestamp).isoformat(sep=' ')[:19],
+                                    datetime.datetime.fromtimestamp(timestamp).isoformat(sep=' ')[2:16],
                                     (xyz >> 15) & 511,
                                     (xyz >> 6) & 511,
                                     xyz & 63,

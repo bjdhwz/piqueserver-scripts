@@ -116,10 +116,9 @@ def flag(connection, team, hide=False):
         flag.set(x, y, z+2.5)
     flag.update()
 
-@command()
-def pos(connection):
-    x, y, z = connection.get_location()
-    return '(%s, %s, %s)' % (str(int(x)), str(int(y)), str(int(z)))
+@command(admin_only=True)
+def tppos(connection, x, y, z):
+    connection.set_location((int(x), int(y), int(z)))
 
 @command()
 def info(connection):
@@ -130,18 +129,18 @@ def info(connection):
     connection.info_mode = not connection.info_mode
 
 @command()
-def netstat(connection):
+def pingmon(connection):
     """
     Monitor latency
-    /netstat
+    /pingmon
     """
-    connection.netstat_mode = not connection.netstat_mode
-    if connection.netstat_mode:
+    connection.pingmon_mode = not connection.pingmon_mode
+    if connection.pingmon_mode:
         connection.latency_history = [0] * 30
-        connection.netstat_loop = LoopingCall(connection.update_netstat)
-        connection.netstat_loop.start(1)
+        connection.pingmon_loop = LoopingCall(connection.update_pingmon)
+        connection.pingmon_loop.start(1)
     else:
-        connection.netstat_loop.stop()
+        connection.pingmon_loop.stop()
 
 @command('clearammo', 'ca', admin_only=True)
 @target_player
@@ -167,10 +166,10 @@ def apply_script(protocol, connection, config):
 
         info_mode = False
         info_cur = None
-        netstat_mode = False
-        latency_history = []
+        pingmon_mode = False
+        latency_history = [0] * 30
 
-        def update_netstat(self):
+        def update_pingmon(self):
             blocks = '▁▂▃▄▅▆▇█'
             if len(self.latency_history) == 30:
                 self.latency_history = self.latency_history[1:]
@@ -183,7 +182,7 @@ def apply_script(protocol, connection, config):
 
         def on_disconnect(self):
             try: # might already not exist when called
-                self.netstat_loop.stop()
+                self.pingmon_loop.stop()
             except:
                 pass
             return connection.on_disconnect(self)

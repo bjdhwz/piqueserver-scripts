@@ -21,6 +21,7 @@ con = sqlite3.connect(db_path)
 cur = con.cursor()
 cur.execute('CREATE TABLE IF NOT EXISTS claims(sector, owner COLLATE NOCASE, dt, name)')
 cur.execute('CREATE TABLE IF NOT EXISTS shared(sector, player COLLATE NOCASE, dt)')
+cur.execute('CREATE TABLE IF NOT EXISTS signs(x, y, z, text)')
 con.commit()
 cur.close()
 
@@ -138,6 +139,39 @@ def title(connection, sector, *name):
         else:
             return "Claim no longer has a name"
     return "You can only name your claims"
+
+@command()
+def sign(connection, *text):
+    """
+    Add a message to the block you're looking at that'll be displayed when another player looks at this block. Leave empty to remove the message
+    /sign <text>
+    """
+    if not connection.logged_in:
+        return "Log in using /login to make changes to your claim"
+
+    x, y, z = connection.world_object.cast_ray(12)
+    owner = claimed_by(get_sector(x, y), connection.name)
+    if owner == True or connection.admin:
+        cur = con.cursor()
+        if text:
+            text = escape_control_codes(' '.join(text[:85]))[:85]
+            res = cur.execute('SELECT text FROM signs WHERE x = ? AND y = ? AND z = ?', (x, y, z)).fetchone()
+            if res:
+                cur.execute('UPDATE signs SET text = ? WHERE x = ? AND y = ? AND z = ?', (text, x, y, z))
+            else:
+                cur.execute('INSERT INTO signs(x, y, z, text) VALUES(?, ?, ?, ?)', (x, y, z, text))
+            connection.protocol.notify_admins("%s signed a block \"%s\"" % (connection.name, text))
+        else:
+            text = ''
+            cur.execute('DELETE FROM signs WHERE x = ? AND y = ? AND z = ?', (x, y, z))
+            connection.protocol.notify_admins("%s unsigned a block" % connection.name)
+        con.commit()
+        cur.close()
+        if text:
+            return "Block has been signed"
+        else:
+            return "Block is no longer signed"
+    return "You can only sign blocks within your claim"
 
 @command()
 def claimed(connection, player=None):
@@ -315,10 +349,10 @@ def apply_script(protocol, connection, config):
 
         def __init__(self, *arg, **kw):
             protocol.__init__(self, *arg, **kw)
-            self.sector_names_loop = LoopingCall(self.display_sector_name)
+            self.sector_names_loop = LoopingCall(self.display_notifications)
             self.sector_names_loop.start(1)
 
-        def display_sector_name(self):
+        def display_notifications(self):
             for player in self.players.values():
                 if not player.world_object:
                     return
@@ -331,6 +365,14 @@ def apply_script(protocol, connection, config):
                         if name[0]:
                             player.send_cmsg("Welcome to %s" % name[0], 'Status')
                     player.current_sector = get_sector(x, y)
+                if player.world_object.cast_ray(12):
+                    x, y, z = player.world_object.cast_ray(12)
+                    cur = con.cursor()
+                    text = cur.execute('SELECT text FROM signs WHERE x = ? AND y = ? AND z = ?', (x, y, z)).fetchone()
+                    cur.close()
+                    if text:
+                        if text[0]:
+                            player.send_cmsg(text[0], 'Notice')
 
         def is_claimed(self, x, y, z):
             cur = con.cursor()
