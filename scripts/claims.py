@@ -97,18 +97,22 @@ def sector(connection, sector=None):
     owner = claimed_by(sector, connection.name)
     if owner == False:
         return "Sector %s is unclaimed" % sector
-    if owner == None:
-        return "Sector %s is reserved" % sector
     if owner == True:
         owner = connection.name
     cur = con.cursor()
     dt = cur.execute('SELECT dt FROM claims WHERE sector = ?', (sector,)).fetchone()[0]
     shared = cur.execute('SELECT player FROM shared WHERE sector = ?', (sector,)).fetchall()
     cur.close()
-    if shared:
-        return "Sector %s is claimed by %s since %s and shared with %s" % (sector, owner, dt[:10], ', '.join([x[0] for x in shared]))
+    if owner == None: # reserved
+        if shared:
+            return "Sector %s is reserved and shared with %s" % (sector, ', '.join([x[0] for x in shared]))
+        else:
+            return "Sector %s is reserved" % sector
     else:
-        return "Sector %s is claimed by %s since %s" % (sector, owner, dt[:10])
+        if shared:
+            return "Sector %s is claimed by %s since %s and shared with %s" % (sector, owner, dt[:10], ', '.join([x[0] for x in shared]))
+        else:
+            return "Sector %s is claimed by %s since %s" % (sector, owner, dt[:10])
 
 @command()
 def title(connection, sector, *name):
@@ -189,7 +193,7 @@ def claimed(connection, player=None):
     cur.close()
     return ', '.join(claimed_sectors)
 
-@command()
+@command('unclaimed', 'free')
 def unclaimed(connection):
     """
     List unclaimed sectors
@@ -350,7 +354,7 @@ def apply_script(protocol, connection, config):
         def __init__(self, *arg, **kw):
             protocol.__init__(self, *arg, **kw)
             self.sector_names_loop = LoopingCall(self.display_notifications)
-            self.sector_names_loop.start(1)
+            self.sector_names_loop.start(0.5)
 
         def display_notifications(self):
             for player in self.players.values():
@@ -365,14 +369,28 @@ def apply_script(protocol, connection, config):
                         if name[0]:
                             player.send_cmsg("Welcome to %s" % name[0], 'Status')
                     player.current_sector = get_sector(x, y)
-                if player.world_object.cast_ray(12):
-                    x, y, z = player.world_object.cast_ray(12)
-                    cur = con.cursor()
-                    text = cur.execute('SELECT text FROM signs WHERE x = ? AND y = ? AND z = ?', (x, y, z)).fetchone()
-                    cur.close()
-                    if text:
-                        if text[0]:
-                            player.send_cmsg(text[0], 'Notice')
+                ray = player.world_object.cast_ray(12)
+                if ray:
+                    if ray != player.last_cast_ray_block:
+                        x, y, z = ray
+                        cur = con.cursor()
+                        text = cur.execute('SELECT text FROM signs WHERE x = ? AND y = ? AND z = ?', (x, y, z)).fetchone()
+                        cur.close()
+                        if text:
+                            if text[0]:
+                                player.current_sign = text[0]
+                                player.send_cmsg(text[0], 'Notice')
+                        else:
+                            if player.current_sign:
+                                player.current_sign = None
+                                player.send_cmsg('\0', 'Notice')
+                    else:
+                        if player.current_sign:
+                            player.send_cmsg(current_sign, 'Notice')
+                else:
+                    if player.current_sign:
+                        player.current_sign = None
+                        player.send_cmsg('\0', 'Notice')
 
         def is_claimed(self, x, y, z):
             cur = con.cursor()
@@ -393,6 +411,8 @@ def apply_script(protocol, connection, config):
     class ClaimsConnection(connection):
         current_sector = None
         shared_sectors = None
+        last_cast_ray_block = None
+        current_sign = None
 
         def can_build(self, x, y, z):
             owners = self.protocol.is_claimed(x, y, z)
@@ -468,5 +488,11 @@ def apply_script(protocol, connection, config):
             for point in points:
                 if self.can_build(*point) == False:
                     return False
+
+        def on_spawn(self, pos):
+            self.protocol.sector_names_loop.stop()
+            self.protocol.sector_names_loop = LoopingCall(self.protocol.display_notifications)
+            self.protocol.sector_names_loop.start(0.5)
+            return connection.on_spawn(self, pos)
 
     return ClaimsProtocol, ClaimsConnection

@@ -45,10 +45,10 @@ def build(con, x, y, z, rgb, dither):
     con.protocol.map.set_point(x, y, z, rgb)
 
 @command(admin_only=True)
-def loadvox(con, fn=None, dither=0, rotate=''):
+def loadvox(con, fn=None, dither=0, rotate='', shift=1):
     """
     Place .vox file. Model is rotated according to player orientation.
-    /loadvox <filename> <dither 0-127 (default 0)> <rotate ([x[-axis], y[-axis], z[-axis]), flip (h[orizontal], v[ertical]) - can be combined>
+    /loadvox <filename> <dither 0-127 (default 0)> <rotate ([x[-axis], y[-axis], z[-axis]), flip (h[orizontal], v[ertical]) - can be combined> <shift>
     """
     px, py, pz = con.get_location()
     paths = [x[:-4] for x in os.listdir(voxdir) if x.endswith('.vox')]
@@ -72,7 +72,7 @@ def loadvox(con, fn=None, dither=0, rotate=''):
             for y in range(len(layer[0])):
                 for z in range(len(layer[0][0])):
                     if layer[x][y][z] != 0:
-                        build(con, int(px)+x+1, int(py)+y+1, int(pz)-z+2, palette[layer[x][y][z]][:3], dither)
+                        build(con, int(px)+x+int(shift), int(py)+y+int(shift), int(pz)-z+2, palette[layer[x][y][z]][:3], dither)
         return 'Model loaded'
     else:
         return 'Available models: ' + ', '.join(paths)

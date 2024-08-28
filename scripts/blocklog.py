@@ -61,7 +61,7 @@ def blocks(connection, player=None):
     block_count = cur_log.execute('SELECT COUNT(*) FROM blocklog WHERE action = 1 AND session IN (%s)' %
         ','.join('?'*len(sessions)), sessions).fetchone()[0]
     cur_log.close()
-    return "%s placed %s blocks" % (player, block_count)
+    return "%s placed %s blocks" % (player, f'{block_count:,}')
 
 
 def apply_script(protocol, connection, config):
@@ -150,7 +150,7 @@ def apply_script(protocol, connection, config):
                         x, y, z = self.last_cast_ray_block
                         xyz = x << 15 | y << 6 | z
                         cur_log = con_log.cursor()
-                        res = cur_log.execute('SELECT id, timestamp, xyz, session, action, color, undone FROM blocklog WHERE xyz = ?', (
+                        res = cur_log.execute('SELECT id, timestamp, xyz, session, action, color, undone FROM blocklog WHERE xyz = ? ORDER BY id DESC', (
                             xyz,)).fetchone()
                         cur_log.close()
                         if res:

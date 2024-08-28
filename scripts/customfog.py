@@ -32,6 +32,7 @@ def fog(connection, *args):
     /fog red green blue (all values 0-255)
     /fog #aabbcc        (hex representation of rgb)
     /fog #abc           (short hex representation of rgb)
+    /fog default        (default fog color)
     /fog ?              (current fog color)
     """
     if (len(args) == 3):
@@ -39,9 +40,11 @@ def fog(connection, *args):
         g = int(args[1])
         b = int(args[2])
     elif (len(args) == 1 and args[0][0] == '#'):
-        if args[0] == '?':
-            return connection.protocol.fog_color
         r, g, b = hex2rgb(args[0])
+    elif args[0] == 'default':
+        r, g, b = [128, 232, 255]
+    elif args[0] == '?':
+        return str(connection.protocol.fog_color)
     else:
         raise ValueError("Neither RGB or hex code provided")
 
@@ -133,10 +136,11 @@ def apply_script(protocol, connection, config):
             if is_smooth:
                 self.is_fog_smooth = is_smooth
                 self.fog_interval = interval
-                self.fog_colors = [
-                    (choice(range(255)), choice(range(255)), choice(range(255))),
-                    (choice(range(255)), choice(range(255)), choice(range(255)))
-                    ]
+                if is_random:
+                    self.fog_colors = [
+                        (choice(range(255)), choice(range(255)), choice(range(255))),
+                        (choice(range(255)), choice(range(255)), choice(range(255)))
+                        ]
                 self.fog_loop.start(0.1)
             else:
                 self.fog_loop.start(interval)
