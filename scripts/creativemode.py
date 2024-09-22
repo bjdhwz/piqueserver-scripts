@@ -24,20 +24,26 @@ HIDE_POS = (-256, -256, 63)
 ALL_SECTORS = [chr(x // 8 + ord('A')) + str(x % 8 + 1) for x in range(64)]
 
 
-def do_move(connection, sector, silent=False, top=False):
-    x, y = coordinates(sector)
-    x += 32
-    y += 32
-    if top:
-        for i in range(64):
-            if connection.protocol.map.get_solid(x, y, i):
-                z = i - 2
-                break
+def do_move(con, sector, silent=False, top=False):
+    if not con.gt_cooldown:
+        x, y = coordinates(sector)
+        x += 32
+        y += 32
+        if top:
+            for i in range(64):
+                if con.protocol.map.get_solid(x, y, i):
+                    z = i - 2
+                    break
+        else:
+            z = con.protocol.map.get_height(x, y) - 2
+        con.set_location((x-0.5, y-0.5, z))
+        if not silent:
+            con.protocol.broadcast_chat('%s teleported to %s' % (con.name, sector))
+        if not con.admin:
+            con.gt_loop = LoopingCall(con.gt_loop_check)
+            con.gt_loop.start(10)
     else:
-        z = connection.protocol.map.get_height(x, y) - 2
-    connection.set_location((x-0.5, y-0.5, z))
-    if not silent:
-        connection.protocol.broadcast_chat('%s teleported to %s' % (connection.name, sector))
+        con.send_chat("Please wait 10 seconds before teleporting again")
 
 @command('gt', 'goto')
 def gt(connection, sector):
@@ -129,18 +135,18 @@ def info(connection):
     connection.info_mode = not connection.info_mode
 
 @command()
-def pingmon(connection):
+def pingmon(con):
     """
     Monitor latency
     /pingmon
     """
-    connection.pingmon_mode = not connection.pingmon_mode
-    if connection.pingmon_mode:
-        connection.latency_history = [0] * 30
-        connection.pingmon_loop = LoopingCall(connection.update_pingmon)
-        connection.pingmon_loop.start(1)
+    con.pingmon_mode = not con.pingmon_mode
+    if con.pingmon_mode:
+        con.latency_history = [0] * 30
+        con.pingmon_loop = LoopingCall(con.update_pingmon)
+        con.pingmon_loop.start(1)
     else:
-        connection.pingmon_loop.stop()
+        con.pingmon_loop.stop()
 
 @command('clearammo', 'ca', admin_only=True)
 @target_player
@@ -161,13 +167,15 @@ def clear_ammo(connection, player):
     player.send_contained(weapon_reload)
     return "%s's ammo has been cleared" % player.name
 
+
 def apply_script(protocol, connection, config):
     class NoCaptureConnection(connection):
-
         info_mode = False
         info_cur = None
         pingmon_mode = False
         latency_history = [0] * 30
+        gt_cooldown = False
+        gt_loop = None
 
         def update_pingmon(self):
             blocks = '▁▂▃▄▅▆▇█'
@@ -237,6 +245,20 @@ def apply_script(protocol, connection, config):
                     self.info_cur = self.world_object.cast_ray(128)
                     self.send_cmsg(str(self.info_cur) + ' #%02X%02X%02X ' % self.protocol.map.get_color(*self.info_cur) + str(self.protocol.map.get_color(*self.info_cur)), 'Notice')
             connection.on_orientation_update(self, x, y, z)
+
+        def gt_loop_check(self):
+            if self.gt_cooldown:
+                self.gt_cooldown = False
+                self.gt_loop.stop()
+            else:
+                self.gt_cooldown = True
+
+        def on_disconnect(self):
+            try: # might already not exist when called
+                self.gt_cooldown.stop()
+            except:
+                pass
+            return connection.on_disconnect(self)
 
     class NoCaptureProtocol(protocol):
 
