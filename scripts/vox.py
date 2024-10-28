@@ -19,16 +19,16 @@ import os, random, struct
 from piqueserver.commands import command
 from piqueserver.config import config
 from pyspades.common import make_color
-from pyspades.constants import BUILD_BLOCK, DESTROY_BLOCK
+from pyspades.constants import BUILD_BLOCK
 from pyspades.contained import BlockAction, SetColor
-from pyspades import contained as loaders
+from twisted.internet.task import LoopingCall
 
 voxdir = os.path.join(config.config_dir, 'vox')
 
 
-def build(con, x, y, z, rgb, dither):
-    dither = random.choice(range(-int(dither)-1, int(dither)))
-    rgb = [int(value) + dither for value in rgb]
+def build(con, x, y, z, rgb, dither, rgbshift):
+    dither = random.choice(range(-int(dither), int(dither)+1))
+    rgb = [int(value) + dither + rgbshift for value in rgb]
     rgb = [255 if value > 255 else value for value in rgb]
     rgb = tuple([0 if value < 0 else value for value in rgb])
     set_color = SetColor()
@@ -45,13 +45,15 @@ def build(con, x, y, z, rgb, dither):
     con.protocol.map.set_point(x, y, z, rgb)
 
 @command(admin_only=True)
-def loadvox(con, fn=None, dither=0, rotate='', shift=1):
+def loadvox(con, fn=None, dither=0, rotate='', shift=1, pattern=''):
     """
-    Place .vox file. Model is rotated according to player orientation.
-    /loadvox <filename> <dither 0-127 (default 0)> <rotate ([x[-axis], y[-axis], z[-axis]), flip (h[orizontal], v[ertical]) - can be combined> <shift>
+    Place .vox file
+    /loadvox <filename> <dither 0-127 (default 0)> <rotate ([x[-axis], y[-axis], z[-axis]), flip (h[orizontal], v[ertical]) - can be combined> <shift> <pattern>
     """
     px, py, pz = con.get_location()
     paths = [x[:-4] for x in os.listdir(voxdir) if x.endswith('.vox')]
+    if pattern == 'brick':
+        bricks = np.reshape([random.choice(range(-int(dither), int(dither)+1)) for x in range(256*256*64)], (256, 256, 64))
     if fn in paths:
         path = os.path.join(voxdir, fn + '.vox')
         data, palette = read(path)
@@ -68,11 +70,23 @@ def loadvox(con, fn=None, dither=0, rotate='', shift=1):
                 layer = np.fliplr(layer)
             elif char == 'v':
                 layer = np.flipud(layer)
+        if shift == 'center':
+            px -= len(layer) // 2
+            py -= len(layer[0]) // 2
+            shift = 0
         for x in range(len(layer)):
             for y in range(len(layer[0])):
                 for z in range(len(layer[0][0])):
                     if layer[x][y][z] != 0:
-                        build(con, int(px)+x+int(shift), int(py)+y+int(shift), int(pz)-z+2, palette[layer[x][y][z]][:3], dither)
+                        x1 = int(px)+x+int(shift)
+                        y1 = int(py)+y+int(shift)
+                        z1 = int(pz)-z+2
+                        if pattern == 'brick':
+                            rgbshift = bricks[(x1+z1%2)//2][(y1+z1%2)//2][(z1+z1%2)//2-1]
+                            con.vox_queue += [(x1, y1, z1, palette[layer[x][y][z]][:3], 0, rgbshift)]
+                        else:
+                            con.vox_queue += [(x1, y1, z1, palette[layer[x][y][z]][:3], dither, 0)]
+        con.vox_build_start()
         return 'Model loaded'
     else:
         return 'Available models: ' + ', '.join(paths)
@@ -126,9 +140,14 @@ def savevox(con, fn=None):
 
 def apply_script(protocol, connection, config):
     class VoxConnection(connection):
-        savevox_selection = False
-        savevox_point_a = None
-        savevox_point_b = None
+
+        def __init__(self, *arg, **kw):
+            connection.__init__(self, *arg, **kw)
+            savevox_selection = False
+            savevox_point_a = None
+            savevox_point_b = None
+            self.vox_loop = None
+            self.vox_queue = []
 
         def on_shoot_set(self, state):
             if self.savevox_selection:
@@ -141,6 +160,22 @@ def apply_script(protocol, connection, config):
                         self.savevox_point_a = coords
                         self.send_chat('First corner has been selected')
             connection.on_shoot_set(self, state)
+
+        def vox_build_start(self):
+            self.vox_queue = iter(self.vox_queue)
+            self.vox_loop = LoopingCall(self.vox_queue_build)
+            self.vox_loop.start(0.06)
+
+        def vox_queue_build(self):
+            for i in range(60):
+                try:
+                    block = next(self.vox_queue)
+                    if block:
+                        build(self, *block)
+                except StopIteration:
+                    self.vox_loop.stop()
+                    self.vox_queue = []
+                    break
 
     return protocol, VoxConnection
 

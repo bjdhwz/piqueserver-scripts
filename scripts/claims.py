@@ -3,7 +3,7 @@ Lets registered players claim 64x64 sectors of the map and share them with other
 
 Requires auth.py
 
-May conflict with building scripts (building scripts don't work, or blocks in claimed sectors become breakable by anyone)
+May conflict with building scripts (building scripts either don't work, or blocks in claimed sectors become breakable by anyone)
 If that happens, try to change script loading order in config.
 
 .. codeauthor:: Liza
@@ -19,9 +19,13 @@ from pyspades.common import escape_control_codes, coordinates
 db_path = os.path.join(config.config_dir, 'sqlite.db')
 con = sqlite3.connect(db_path)
 cur = con.cursor()
-cur.execute('CREATE TABLE IF NOT EXISTS claims(sector, owner COLLATE NOCASE, dt, name)')
+cur.execute('CREATE TABLE IF NOT EXISTS claims(sector, owner COLLATE NOCASE, dt, name, mode)')
 cur.execute('CREATE TABLE IF NOT EXISTS shared(sector, player COLLATE NOCASE, dt)')
 cur.execute('CREATE TABLE IF NOT EXISTS signs(x, y, z, text)')
+try:
+    cur.execute('ALTER TABLE claims ADD mode')
+except:
+    pass
 con.commit()
 cur.close()
 
@@ -62,9 +66,9 @@ def claim(connection, sector):
     if owner == True:
         return "Sector %s is already claimed by you" % sector
     elif owner:
-        return "Sector %s is already claimed. You can claim one of the /unclaimed sectors" % (sector, owner)
+        return "Sector %s is already claimed. You can claim one of the /free sectors" % (sector, owner)
     elif owner == None:
-        return "Sector %s is reserved and can't be claimed. You can claim one of the /unclaimed sectors" % sector
+        return "Sector %s is reserved and can't be claimed. You can claim one of the /free sectors" % sector
     else:
         cur = con.cursor()
         owned_by_player = cur.execute('SELECT sector FROM claims WHERE owner = ?', (connection.name,)).fetchall()
@@ -318,6 +322,78 @@ def unshare(connection, sector, player):
     connection.protocol.notify_admins("%s unshared %s for %s" % (connection.name, sector, player))
     return "Player %s no longer can build in that sector" % player
 
+@command()
+def public(connection, sector):
+    """
+    Toggle free building (for everyone) in a sector
+    /public <sector>
+    """
+    if not connection.logged_in:
+        return "Log in using /login to make changes to your claim"
+
+    sector = sector.upper()
+    if sector not in ALL_SECTORS:
+        return "Invalid sector. Example of a sector: A1"
+
+    owner = claimed_by(sector, connection.name)
+    if not connection.admin:
+        if owner != True:
+            return "You can only manage sectors you claim. Claim a sector using /claim first"
+
+    owner = claimed_by(sector, connection.name)
+    if owner == True or connection.admin:
+        cur = con.cursor()
+        mode = cur.execute('SELECT mode FROM claims WHERE sector = ?', (sector, )).fetchone()
+        if mode:
+            if mode[0] == 'public':
+                cur.execute('UPDATE claims SET mode = ? WHERE sector = ?', (None, sector))
+                con.commit()
+                cur.close()
+                connection.protocol.notify_admins("%s made %s private" % (connection.name, sector))
+                return "Sector %s is no longer public" % sector
+        cur.execute('UPDATE claims SET mode = ? WHERE sector = ?', ('public', sector))
+        con.commit()
+        cur.close()
+        connection.protocol.notify_admins("%s made %s public" % (connection.name, sector))
+        return "Sector %s is now public" % sector
+    return "You can only manage sectors you claim. Claim a sector using /claim first"
+
+@command()
+def quest(connection, sector):
+    """
+    Toggle "adventure" mode (no building and no commands) in a sector
+    /quest <sector>
+    """
+    if not connection.logged_in:
+        return "Log in using /login to make changes to your claim"
+
+    sector = sector.upper()
+    if sector not in ALL_SECTORS:
+        return "Invalid sector. Example of a sector: A1"
+
+    owner = claimed_by(sector, connection.name)
+    if not connection.admin:
+        if owner != True:
+            return "You can only manage sectors you claim. Claim a sector using /claim first"
+
+    owner = claimed_by(sector, connection.name)
+    if owner == True or connection.admin:
+        cur = con.cursor()
+        mode = cur.execute('SELECT mode FROM claims WHERE sector = ?', (sector, )).fetchone()
+        if mode:
+            if mode[0] == 'quest':
+                cur.execute('UPDATE claims SET mode = ? WHERE sector = ?', (None, sector))
+                con.commit()
+                cur.close()
+                connection.protocol.notify_admins("%s unset %s from quest mode" % (connection.name, sector))
+                return "Sector %s is no longer in quest mode" % sector
+        cur.execute('UPDATE claims SET mode = ? WHERE sector = ?', ('quest', sector))
+        con.commit()
+        cur.close()
+        connection.protocol.notify_admins("%s set %s into quest mode" % (connection.name, sector))
+        return "Sector %s is now in quest mode" % sector
+    return "You can only manage sectors you claim. Claim a sector using /claim first"
+
 @command(admin_only=True)
 def reserve(connection, sector):
     """
@@ -363,11 +439,16 @@ def apply_script(protocol, connection, config):
                 x, y, z = player.get_location()
                 if player.current_sector != get_sector(x, y):
                     cur = con.cursor()
-                    name = cur.execute('SELECT name FROM claims WHERE sector = ?', (get_sector(x, y),)).fetchone()
+                    res = cur.execute('SELECT name, mode FROM claims WHERE sector = ?', (get_sector(x, y),)).fetchone()
                     cur.close()
-                    if name:
-                        if name[0]:
-                            player.send_cmsg("Welcome to %s" % name[0], 'Status')
+                    if res:
+                        name, mode = res
+                        if name:
+                            player.send_cmsg("Welcome to %s" % name, 'Status')
+                        if mode == 'quest':
+                            player.quest_mode = True
+                        else:
+                            player.quest_mode = False
                     player.current_sector = get_sector(x, y)
                 ray = player.world_object.cast_ray(12)
                 if ray:
@@ -394,9 +475,9 @@ def apply_script(protocol, connection, config):
 
         def is_claimed(self, x, y, z):
             cur = con.cursor()
-            claimed = cur.execute('SELECT sector, owner FROM claims').fetchall()
+            claimed = cur.execute('SELECT sector, owner, mode FROM claims').fetchall()
             cur.close()
-            for sector, owner in claimed:
+            for sector, owner, mode in claimed:
                 sx, sy = coordinates(sector)
                 if x >= sx and y >= sy and x < sx + 64 and y < sy + 64:
                     cur = con.cursor()
@@ -405,19 +486,23 @@ def apply_script(protocol, connection, config):
                     if shared:
                         shared = [x[0] for x in shared]
                     owners = [owner] + shared
-                    return owners
+                    return owners, mode
             return False
 
     class ClaimsConnection(connection):
-        current_sector = None
-        shared_sectors = None
-        last_cast_ray_block = None
-        current_sign = None
+
+        def __init__(self, *arg, **kw):
+            connection.__init__(self, *arg, **kw)
+            self.current_sector = None
+            self.shared_sectors = None
+            self.last_cast_ray_block = None
+            self.current_sign = None
+            self.quest_mode = False
 
         def can_build(self, x, y, z):
-            owners = self.protocol.is_claimed(x, y, z)
             if self.god:
                 return True
+            owners, mode = self.protocol.is_claimed(x, y, z)
             if owners:
                 if self.logged_in:
                     if self.name.lower() in [x.lower() for x in owners if x]:
@@ -425,8 +510,10 @@ def apply_script(protocol, connection, config):
                 if self.shared_sectors:
                     if get_sector(x, y) in self.shared_sectors:
                         return True
+                if mode == 'public':
+                    return None # Same as unclaimed sectors
                 if owners[0]:
-                    self.send_chat("Sector %s is claimed. If you want to build here, ask %s to /share it with you. You can also build in /unclaimed sectors" % (get_sector(x, y), owners[0]))
+                    self.send_chat("Sector %s is claimed. If you want to build here, ask %s to /share it with you. You can also build in /free sectors" % (get_sector(x, y), owners[0]))
                 else:
                     self.send_chat("Sector %s is reserved" % get_sector(x, y))
                 return False
@@ -440,18 +527,18 @@ def apply_script(protocol, connection, config):
 
             if self.sculpting: # /sculpt
                 if self.can_build(x, y, z) != True:
-                    self.send_chat("Build commands can only be used in claimed sectors")
+                    self.send_chat("Build commands can only be used in your sectors")
                     return False
             if self.state: # CBC compatibility. Limits usage to sectors players have access to
                 if type(self.state).__name__ == 'GradientState': # exception
                     return
                 if self.can_build(x, y, z) != True:
-                    self.send_chat("Build commands can only be used in claimed sectors")
+                    self.send_chat("Build commands can only be used in your sectors")
                     return False
                 if '_choosing' in dir(self.state):
                     if self.state._choosing == 1:
                         if self.can_build(x, self.state._first_point.y, z) != True or self.can_build(self.state._first_point.x, y, z) != True:
-                            self.send_chat("Build commands can only affect blocks within claimed sectors")
+                            self.send_chat("Build commands can only affect blocks within your sectors")
                             return False
                         if abs(x - self.state._first_point.x) > 64 or abs(y - self.state._first_point.y) > 64:
                             self.send_chat("Build commands are limited to 64 blocks")
@@ -465,18 +552,18 @@ def apply_script(protocol, connection, config):
 
             if self.sculpting:
                 if self.can_build(x, y, z) != True:
-                    self.send_chat("Build commands can only be used in claimed sectors")
+                    self.send_chat("Build commands can only be used in your sectors")
                     return False
             if self.state:
                 if type(self.state).__name__ == 'GradientState':
                     return
                 if self.can_build(x, y, z) != True:
-                    self.send_chat("Build commands can only be used in claimed sectors")
+                    self.send_chat("Build commands can only be used in your sectors")
                     return False
                 if '_choosing' in dir(self.state):
                     if self.state._choosing == 1:
                         if self.can_build(x, self.state._first_point.y, z) != True or self.can_build(self.state._first_point.x, y, z) != True:
-                            self.send_chat("Build commands can only affect blocks within claimed sectors")
+                            self.send_chat("Build commands can only affect blocks within your sectors")
                             return False
                         if abs(x - self.state._first_point.x) > 64 or abs(y - self.state._first_point.y) > 64:
                             self.send_chat("Build commands are limited to 64 blocks")

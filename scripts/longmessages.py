@@ -1,5 +1,6 @@
 """
 Increases max chat message length and automatically wraps it if it doesn't fit in a single line.
+Compatible with shadowban.py and ignore.py
 
 .. codeauthor:: Liza
 """
@@ -34,6 +35,11 @@ def parse_command(value: str) -> Tuple[str, Sequence[str]]:
 
 def apply_script(protocol, connection, config):
     class LongMessagesConnection(connection):
+        shadowbanned = False
+
+        def __init__(self, *arg, **kw):
+            connection.__init__(self, *arg, **kw)
+            self.ignored = []
 
         @register_packet_handler(loaders.ChatMessage)
         def on_chat_message_recieved(self, contained: loaders.ChatMessage) -> None:
@@ -72,7 +78,8 @@ def apply_script(protocol, connection, config):
                     else:
                         if not player.deaf:
                             if team is None or team is player.team:
-                                player.send_contained(contained)
+                                if not self.name in player.ignored:
+                                    player.send_contained(contained)
                 self.on_chat_sent(value, global_message)
 
     return protocol, LongMessagesConnection

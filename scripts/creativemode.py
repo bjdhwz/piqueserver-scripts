@@ -51,6 +51,8 @@ def gt(connection, sector):
     Teleport to a sector
     /gt <sector>
     """
+    if connection.quest_mode:
+        return "This command is not available in quest sectors"
     sector = sector.upper()
     if sector not in ALL_SECTORS:
         return "Invalid sector. Example of a sector: A1"
@@ -73,6 +75,8 @@ def gtop(connection, sector):
     Teleport to a sector (always overground)
     /gtop <sector>
     """
+    if connection.quest_mode:
+        return "This command is not available in quest sectors"
     sector = sector.upper()
     if sector not in ALL_SECTORS:
         return "Invalid sector. Example of a sector: A1"
@@ -88,6 +92,30 @@ def gtops(connection, sector):
     if sector not in ALL_SECTORS:
         return "Invalid sector. Example of a sector: A1"
     do_move(connection, sector, True, top=True)
+
+@command('j', 'jump')
+def jump(connection):
+    """
+    Teleport to where you're looking at
+    /jump
+    """
+    ray = connection.world_object.cast_ray(144)
+    if ray:
+        x, y, z = ray
+        if x < 0:
+            x += 512
+        elif x > 511:
+            x -= 512
+        if y < 0:
+            y += 512
+        elif y > 511:
+            y -= 512
+        x = int(x)
+        y = int(y)
+        z = connection.protocol.map.get_height(x, y) - 2
+        connection.set_location((x-0.5, y-0.5, z))
+    else:
+        return "No block to jump to"
 
 @command('f', 'fly')
 def fly_shortcut(connection):
@@ -170,12 +198,16 @@ def clear_ammo(connection, player):
 
 def apply_script(protocol, connection, config):
     class NoCaptureConnection(connection):
-        info_mode = False
-        info_cur = None
-        pingmon_mode = False
-        latency_history = [0] * 30
-        gt_cooldown = False
-        gt_loop = None
+
+        def __init__(self, *arg, **kw):
+            connection.__init__(self, *arg, **kw)
+            self.info_mode = False
+            self.info_cur = None
+            self.pingmon_mode = False
+            self.latency_history = [0] * 30
+            self.gt_cooldown = False
+            self.gt_loop = None
+            self.quest_mode = False
 
         def update_pingmon(self):
             blocks = '▁▂▃▄▅▆▇█'
@@ -212,6 +244,8 @@ def apply_script(protocol, connection, config):
                 if self.fly:
                     self.fly = False
                     self.send_chat("You're no longer flying")
+            elif team == self.protocol.team_2:
+                self.fly = True
             return team
 
         def on_block_destroy(self, x, y, z, value):

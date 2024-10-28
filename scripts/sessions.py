@@ -57,10 +57,11 @@ def sessions(connection, player=None):
     Show recent sessions
     /sessions <player>
     """
-    if not player:
-        player = connection.name
     cur = con.cursor()
-    records = cur.execute('SELECT id, dt, user, ip, client, logged_in FROM sessions ORDER BY id DESC LIMIT 5').fetchall()
+    if player:
+        records = cur.execute('SELECT id, dt, ip, client, logged_in FROM sessions WHERE user = ? ORDER BY id DESC LIMIT 5', (player,)).fetchall()
+    else:
+        records = cur.execute('SELECT id, dt, user, ip, client, logged_in FROM sessions ORDER BY id DESC LIMIT 5').fetchall()
     cur.close()
     if records:
         for record in records:

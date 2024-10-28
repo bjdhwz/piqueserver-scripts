@@ -26,7 +26,11 @@ def dither(con, value=3):
     try:
         v = int(value)
     except:
-        return 'Value should be a number'
+        return 'Value should be a whole number'
+    if v > 127:
+        v = 127
+    if v < 0:
+        v = 0
     if type(value) == type(''): # user entered value
         if con.dithering == v:
             con.dithering = 0
@@ -59,6 +63,8 @@ def set_dither(con, x, y, z):
     con.color = rgb
 
 def build(con, x, y, z):
+    if con.on_block_build_attempt(x, y, z) == False:
+        return
     block_action = BlockAction()
     block_action.player_id = con.player_id
     block_action.x = x
@@ -73,8 +79,11 @@ def build(con, x, y, z):
 
 def apply_script(protocol, connection, config):
     class DitheringConnection(connection):
-        dithercolor = None
         dithering = 0
+
+        def __init__(self, *arg, **kw):
+            connection.__init__(self, *arg, **kw)
+            self.dithercolor = None
 
         def on_color_set(self, color):
             self.dithercolor = color

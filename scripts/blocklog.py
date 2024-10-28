@@ -66,12 +66,15 @@ def blocks(connection, player=None):
 
 def apply_script(protocol, connection, config):
     class BlockLogConnection(connection):
-        block_destroy_color = None
-        block_destroy_spade_multiblock = False
-        history_mode = False
-        last_checked_block = None
-        number_of_clicks = 0
-        last_cast_ray_block = None
+
+        def __init__(self, *arg, **kw):
+            connection.__init__(self, *arg, **kw)
+            self.block_destroy_color = None
+            self.block_destroy_spade_multiblock = False
+            self.history_mode = False
+            self.last_checked_block = None
+            self.number_of_clicks = 0
+            self.last_cast_ray_block = None
 
         def on_block_destroy(self, x, y, z, value):
             if self.history_mode:
