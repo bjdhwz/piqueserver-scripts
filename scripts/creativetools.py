@@ -273,7 +273,7 @@ def c_move(con, count, direction=None, skip=False):
     Move blocks in selection in given direction or in the direction player is looking at
     /move <count> <[n]orth, [e]ast, [s]outh, [w]est, [u]p, [d]own> <skip empty space>
     """
-    if selection(con, move, (count, direction)):
+    if selection(con, c_move, (count, direction)):
         return
     count = int(count)
     i, sign = get_direction(con, direction)
