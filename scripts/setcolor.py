@@ -13,7 +13,7 @@ Commands
 .. codeauthor:: Liza
 """
 
-from random import choice
+from random import choices
 from piqueserver.commands import command
 from pyspades.common import make_color
 from pyspades.contained import SetColor
@@ -36,7 +36,7 @@ def setcolor(connection, *args):
                 h = ''.join([x*2 for x in h])
             rgb = tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
     else:
-        rgb = choice(range(255)), choice(range(255)), choice(range(255))
+        rgb = choices(range(256), k=3)
 
     set_color = SetColor()
     set_color.value = make_color(*rgb)

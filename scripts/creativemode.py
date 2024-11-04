@@ -112,8 +112,11 @@ def jump(connection):
             y -= 512
         x = int(x)
         y = int(y)
-        z = connection.protocol.map.get_height(x, y) - 2
-        connection.set_location((x-0.5, y-0.5, z))
+        for i in range(64):
+            if connection.protocol.map.get_solid(x, y, i):
+                z = i - 2
+                break
+        connection.set_location((x, y, z))
     else:
         return "No block to jump to"
 
@@ -247,6 +250,11 @@ def apply_script(protocol, connection, config):
             elif team == self.protocol.team_2:
                 self.fly = True
             return team
+
+        def on_login(self, name):
+            connection.on_login(self, name)
+            if self.admin:
+                self.god = True
 
         def on_block_destroy(self, x, y, z, value):
             if value == 3: # disables grenade damage

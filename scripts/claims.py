@@ -104,19 +104,20 @@ def sector(connection, sector=None):
     if owner == True:
         owner = connection.name
     cur = con.cursor()
-    dt = cur.execute('SELECT dt FROM claims WHERE sector = ?', (sector,)).fetchone()[0]
+    dt, mode = cur.execute('SELECT dt, mode FROM claims WHERE sector = ?', (sector,)).fetchone()
     shared = cur.execute('SELECT player FROM shared WHERE sector = ?', (sector,)).fetchall()
     cur.close()
+    status = ''
+    if mode:
+        status += 'in [%s] mode and ' % mode
     if owner == None: # reserved
-        if shared:
-            return "Sector %s is reserved and shared with %s" % (sector, ', '.join([x[0] for x in shared]))
-        else:
-            return "Sector %s is reserved" % sector
+        status += 'reserved'
     else:
-        if shared:
-            return "Sector %s is claimed by %s since %s and shared with %s" % (sector, owner, dt[:10], ', '.join([x[0] for x in shared]))
-        else:
-            return "Sector %s is claimed by %s since %s" % (sector, owner, dt[:10])
+        status += 'claimed by <%s> since %s' % (owner, dt[:10])
+    if shared:
+        return "Sector %s is %s and shared with %s" % (sector, status, ', '.join([x[0] for x in shared]))
+    else:
+        return "Sector %s is %s" % (sector, status)
 
 @command()
 def title(connection, sector, *name):
@@ -487,7 +488,7 @@ def apply_script(protocol, connection, config):
                         shared = [x[0] for x in shared]
                     owners = [owner] + shared
                     return owners, mode
-            return False
+            return False, None
 
     class ClaimsConnection(connection):
 

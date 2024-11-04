@@ -23,7 +23,7 @@ def wrap_if_necessary(func_or_value):
     except: return lambda: func_or_value
     else: return func_or_value
 
-@command(admin_only=True)
+@command()
 def lightning(connection, player = None):
     # And I will strike down upon thee with great vengeance and furious anger
     # those who would attempt to poison and destroy My brothers

@@ -1,14 +1,17 @@
 """
-Same as vanilla /invisible, but doesn't kill player's avatar.
+Same as vanilla /invisible, but doesn't kill player's avatar and adds /invstat to list all invisible players.
 
 Commands
 ^^^^^^^^
 
 * ``/invisible [player]``
+* ``/invstat``
+
 """
 
-from pyspades.contained import CreatePlayer, SetTool, KillAction, InputData, SetColor, WeaponInput
 from piqueserver.commands import command, target_player
+from pyspades.common import make_color
+from pyspades.contained import CreatePlayer, SetTool, KillAction, InputData, SetColor, WeaponInput
 
 
 @command('invisible', 'invis', 'inv', admin_only=True)
@@ -25,16 +28,14 @@ def invisible(connection, player):
 ##    player.god_build = False
 ##    player.killing = not player.invisible
     if player.invisible:
-        player.send_chat("You're now invisible")
-        protocol.irc_say('* %s became invisible' % player.name)
+        connection.protocol.notify_admins('%s became invisible' % connection.name)
 ##        kill_action = KillAction()
 ##        kill_action.kill_type = choice([GRENADE_KILL, FALL_KILL])
 ##        kill_action.player_id = kill_action.killer_id = player.player_id
 ##        reactor.callLater(1.0 / NETWORK_FPS, protocol.broadcast_contained,
 ##                          kill_action, sender=player)
     else:
-        player.send_chat("You return to visibility")
-        protocol.irc_say('* %s became visible' % player.name)
+        connection.protocol.notify_admins('%s became visible' % connection.name)
         x, y, z = player.world_object.position.get()
         create_player = CreatePlayer()
         create_player.player_id = player.player_id
@@ -74,6 +75,21 @@ def invisible(connection, player):
             connection.protocol.notify_admins('%s made %s invisible' % (connection.name, player.name))
         else:
             connection.protocol.notify_admins('%s made %s visible' % (connection.name, player.name))
+
+@command(admin_only=True)
+def invstat(connection):
+    """
+    List invisible players
+    /invstat
+    """
+    inv = []
+    for player in connection.protocol.players.values():
+        if player.invisible:
+            inv += [player.name]
+    if inv:
+        return ', '.join(inv)
+    else:
+        return 'No invisible players'
 
 
 def apply_script(protocol, connection, config):

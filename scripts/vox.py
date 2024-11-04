@@ -45,15 +45,19 @@ def build(con, x, y, z, rgb, dither, rgbshift):
     con.protocol.map.set_point(x, y, z, rgb)
 
 @command(admin_only=True)
-def loadvox(con, fn=None, dither=0, rotate='', shift=1, pattern=''):
+def loadvox(con, fn=None, dither=0, rotate='', shift=1, pattern='', px=None, py=None, pz=None):
     """
     Place .vox file
-    /loadvox <filename> <dither 0-127 (default 0)> <rotate ([x[-axis], y[-axis], z[-axis]), flip (h[orizontal], v[ertical]) - can be combined> <shift> <pattern>
+    /loadvox <filename> <dither 0-127 (default 0)> <rotate ([[x]-axis, [y]-axis, [z]-axis), flip ([h]orizontal, [v]ertical) - can be combined> <shift> <pattern>
     """
-    px, py, pz = con.get_location()
+    if not pz:
+        px, py, pz = con.get_location()
     paths = [x[:-4] for x in os.listdir(voxdir) if x.endswith('.vox')]
-    if pattern == 'brick':
-        bricks = np.reshape([random.choice(range(-int(dither), int(dither)+1)) for x in range(256*256*64)], (256, 256, 64))
+    rgbshift = 0
+    if pattern:
+        if pattern == 'brick':
+            pattern = np.reshape([random.choice(range(-int(dither), int(dither)+1)) for x in range(256*256*64)], (256, 256, 64))
+        dither = 0
     if fn in paths:
         path = os.path.join(voxdir, fn + '.vox')
         data, palette = read(path)
@@ -81,15 +85,31 @@ def loadvox(con, fn=None, dither=0, rotate='', shift=1, pattern=''):
                         x1 = int(px)+x+int(shift)
                         y1 = int(py)+y+int(shift)
                         z1 = int(pz)-z+2
-                        if pattern == 'brick':
-                            rgbshift = bricks[(x1+z1%2)//2][(y1+z1%2)//2][(z1+z1%2)//2-1]
-                            con.vox_queue += [(x1, y1, z1, palette[layer[x][y][z]][:3], 0, rgbshift)]
-                        else:
-                            con.vox_queue += [(x1, y1, z1, palette[layer[x][y][z]][:3], dither, 0)]
+                        if (x1 in range(512)) and (y1 in range(512)) and (z1 in range(64)):
+                            if pattern:
+                                rgbshift = pattern[(x1+z1%2)//2][(y1+z1%2)//2][(z1+z1%2)//2-1]
+                            con.vox_queue += [(x1, y1, z1, palette[layer[x][y][z]][:3], dither, rgbshift)]
         con.vox_build_start()
         return 'Model loaded'
     else:
         return 'Available models: ' + ', '.join(paths)
+
+@command(admin_only=True)
+def voxbrush(con, fn=None, dither=0, rotate='', pattern='', shift='center'):
+    """
+    Place .vox file by clicking
+    /voxbrush <filename> <dither 0-127 (default 0)> <rotate ([[x]-axis, [y]-axis, [z]-axis), flip ([h]orizontal, [v]ertical) - can be combined> <pattern>
+    """
+    if con.voxbrush:
+        if fn:
+            con.voxbrush = (fn, dither, rotate, shift, pattern)
+            return 'Vox brush updated'
+        else:
+            con.voxbrush = False
+            return 'Vox brush disabled'
+    else:
+        con.voxbrush = (fn, dither, rotate, shift, pattern)
+        return 'Vox brush enabled'
 
 @command(admin_only=True)
 def savevox(con, fn=None):
@@ -143,16 +163,23 @@ def apply_script(protocol, connection, config):
 
         def __init__(self, *arg, **kw):
             connection.__init__(self, *arg, **kw)
-            savevox_selection = False
-            savevox_point_a = None
-            savevox_point_b = None
+            self.savevox_selection = False
+            self.savevox_point_a = None
+            self.savevox_point_b = None
             self.vox_loop = None
             self.vox_queue = []
+            self.voxbrush = False
 
         def on_shoot_set(self, state):
-            if self.savevox_selection:
-                if state == True:
-                    coords = self.world_object.cast_ray(128)
+            if state == True:
+                if self.voxbrush:
+                    if not self.vox_queue:
+                        coords = self.world_object.cast_ray(160)
+                        if coords:
+                            x, y, z = coords
+                            loadvox(self, *self.voxbrush, x, y, z-2)
+                if self.savevox_selection:
+                    coords = self.world_object.cast_ray(160)
                     if self.savevox_point_a:
                         self.savevox_point_b = coords
                         self.send_chat('Selection created. Use /savevox <filename> to save selected area')
@@ -164,7 +191,7 @@ def apply_script(protocol, connection, config):
         def vox_build_start(self):
             self.vox_queue = iter(self.vox_queue)
             self.vox_loop = LoopingCall(self.vox_queue_build)
-            self.vox_loop.start(0.06)
+            self.vox_loop.start(0.01)
 
         def vox_queue_build(self):
             for i in range(60):
@@ -266,7 +293,7 @@ def read_chunk(data):
     
     id, data = data[:4], data[4:]
     
-    print(id)
+##    print(id)
     
     (chunk_content_size, child_chunks_size), data = struct.unpack("II", data[:8]), data[8:]
     
@@ -285,7 +312,7 @@ def read_size_chunk(file):
 
     (col_count, row_count, plane_count) = struct.unpack("III", file.read(12))
     
-    print("size", col_count, row_count, plane_count)
+##    print("size", col_count, row_count, plane_count)
     
     return np.zeros((plane_count, row_count, col_count), dtype=np.uint8)
     
@@ -319,7 +346,7 @@ def read_main_chunk(file):
     
     (chunk_content_size, child_chunks_size) = struct.unpack("II", file.read(8))
     
-    print(chunk_content_size, child_chunks_size)
+##    print(chunk_content_size, child_chunks_size)
     
     palette = None
     volume_list = []

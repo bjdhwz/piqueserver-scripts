@@ -41,9 +41,10 @@ def apply_script(protocol, connection, config): # maybe use on_move?
                     if self.player_id != player.player_id:
                         x2, y2, z2 = player.world_object.position.get()
                         dist = ((x2 - x1)**2 + (y2 - y1)**2 + (z2 - z1)**2)**0.5
-                        if dist < 5:
-                            vel = self.world_object.velocity
-                            if vel.x + vel.y + vel.z != 0:
+                        if dist < 4.5:
+                            vel_a = self.world_object.velocity
+                            vel_b = player.world_object.velocity
+                            if abs(vel_a.x) + abs(vel_a.y) + abs(vel_a.z) > abs(vel_b.x) + abs(vel_b.y) + abs(vel_b.z):
                                 self.set_location_safe((x1 + x1 - x2, y1 + y1 - y2, z1))
 
         def on_spawn(self, pos):

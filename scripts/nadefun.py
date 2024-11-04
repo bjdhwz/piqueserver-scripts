@@ -43,20 +43,11 @@ def nade(con, num='1', radius='0', speed='0', fuse='3'):
     for i in range(int(num)):
         fuse = random.uniform(fuse_start, fuse_end)
         pos = Vertex3(random.uniform(x1, x2), random.uniform(y1, y2), z)
-        orientation = None
         velocity = Vertex3(
             random.uniform(-speed, speed),
             random.uniform(-speed, speed),
             random.uniform(-speed, speed)
             )
-        grenade = con.protocol.world.create_object(
-            Grenade,
-            fuse,
-            pos,
-            orientation,
-            velocity,
-            con.grenade_exploded)
-        grenade.name = 'nadefun'
         grenade_packet = GrenadePacket()
         grenade_packet.value = fuse
         grenade_packet.player_id = 32

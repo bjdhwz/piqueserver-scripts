@@ -10,7 +10,7 @@ Commands
 """
 
 import enet
-from random import choice
+from random import choices
 from twisted.internet.task import LoopingCall
 from piqueserver.commands import command
 from pyspades import contained as loaders
@@ -141,7 +141,7 @@ def apply_script(protocol, connection, config):
         def update_team_color(self):
             if self.is_team_random:
                 if self.team_n % self.team_interval == 0:
-                    self.team_colors = [self.team_colors[-1], (choice(range(255)), choice(range(255)), choice(range(255)))]
+                    self.team_colors = [self.team_colors[-1], choices(range(256), k=3)]
                 clr = interpolate_rgb(self.team_colors[0], self.team_colors[1], self.team_n % self.team_interval / self.team_interval)
                 self.send_teamdata(team1_color = clr)
                 self.send_teamdata(team2_color = (255 - clr[0], 255 - clr[1], 255 - clr[2]))
@@ -162,15 +162,16 @@ def apply_script(protocol, connection, config):
             self.team_n = 0
             self.team_interval = interval
             self.team_colors = [
-                (choice(range(255)), choice(range(255)), choice(range(255))),
-                (choice(range(255)), choice(range(255)), choice(range(255)))
+                choices(range(256), k=3),
+                choices(range(256), k=3)
                 ]
             self.team_loop.start(0.2)
 
         def stop_team_cycle(self):
-            self.team_loop.stop()
-            self.is_team_active = False
-            self.send_teamdata(team1_color = self.original_team_colors[0])
-            self.send_teamdata(team2_color = self.original_team_colors[1])
+            if self.is_team_active:
+                self.team_loop.stop()
+                self.is_team_active = False
+                self.send_teamdata(team1_color = self.original_team_colors[0])
+                self.send_teamdata(team2_color = self.original_team_colors[1])
 
     return TeamColorProtocol, connection

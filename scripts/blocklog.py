@@ -198,6 +198,7 @@ def apply_script(protocol, connection, config):
                         if xyz == self.last_checked_block:
                             self.number_of_clicks += 1
                         if res:
+                            res.reverse()
                             for i in res:
                                 action_id, timestamp, xyz, session, action, color, undone = i
                                 cur = con.cursor()

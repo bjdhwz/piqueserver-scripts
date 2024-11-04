@@ -13,7 +13,7 @@ Commands
 .. codeauthor:: Liza
 """
 
-from random import choice
+from random import choices
 from twisted.internet.task import LoopingCall
 from piqueserver.commands import command
 from pyspades.color import interpolate_hsb, interpolate_rgb, hsb_to_rgb
@@ -112,7 +112,7 @@ def apply_script(protocol, connection, config):
             if self.is_fog_smooth:
                 if self.is_fog_random:
                     if self.fog_n % self.fog_interval == 0:
-                        self.fog_colors = [self.fog_colors[-1], (choice(range(255)), choice(range(255)), choice(range(255)))]
+                        self.fog_colors = [self.fog_colors[-1], choices(range(256), k=3)]
                     self.set_fog_color(interpolate_rgb(self.fog_colors[0], self.fog_colors[1], self.fog_n % self.fog_interval / self.fog_interval))
                 else:
                     color_a = self.fog_n % (len(self.fog_colors) * self.fog_interval) // self.fog_interval
@@ -120,7 +120,7 @@ def apply_script(protocol, connection, config):
                     self.set_fog_color(interpolate_rgb(self.fog_colors[color_a], self.fog_colors[color_b], self.fog_n % self.fog_interval / self.fog_interval))
             else:
                 if self.is_fog_random:
-                    self.set_fog_color((choice(range(255)), choice(range(255)), choice(range(255))))
+                    self.set_fog_color(choices(range(256), k=3))
                 else:
                     self.set_fog_color(self.fog_colors[self.fog_n % len(self.fog_colors)])
 
@@ -138,8 +138,8 @@ def apply_script(protocol, connection, config):
                 self.fog_interval = interval
                 if is_random:
                     self.fog_colors = [
-                        (choice(range(255)), choice(range(255)), choice(range(255))),
-                        (choice(range(255)), choice(range(255)), choice(range(255)))
+                        choices(range(256), k=3),
+                        choices(range(256), k=3)
                         ]
                 self.fog_loop.start(0.1)
             else:

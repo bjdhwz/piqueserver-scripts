@@ -101,7 +101,7 @@ def apply_script(protocol, connection, config):
         rollback_max_packets = 180
         # per 'cycle', each block op is at least 1
         rollback_max_unique_packets = 12
-        rollback_time_between_cycles = 0.02
+        rollback_time_between_cycles = 0.01
         rollback_time_between_progress_updates = 10.0
         rollback_start_time = None
         rollback_last_chat = None

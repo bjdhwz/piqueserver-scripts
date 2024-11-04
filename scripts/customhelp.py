@@ -15,7 +15,7 @@ def eshelp(connection):
         "Registrarse con un comando /reg para proteger su sector con un comando /claim",
         "Reglas: 1) no construyas arte/cuadros/banderas, construye edificios",
         "2) no arruines el juego por otros"
-        ], 'rules')
+        ])
 
 @command()
 def ruhelp(connection):
@@ -25,7 +25,7 @@ def ruhelp(connection):
         "Registriruysya komandoy /reg chtoby zaschitit' svoy sektor komandoy /claim",
         "Pravila: 1) ne nado delat' arty/kartinki/flagi, stroy zdaniya",
         "2) ne port' igru drugim"
-        ], 'rules')
+        ])
 
 
 def apply_script(protocol, connection, config):
