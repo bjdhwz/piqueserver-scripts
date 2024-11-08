@@ -459,25 +459,29 @@ def setfog(connection, sector, *color):
     if sector not in ALL_SECTORS:
         return "Invalid sector. Example of a sector: A1"
 
-    if color[0] == '?':
-        cur = con.cursor()
-        cur.execute('UPDATE claims SET fog = ? WHERE sector = ?', ('#%02X%02X%02X ' % color, sector))
-        con.commit()
-        cur.close()
-        return str(connection.protocol.fog_color)
+    if color:
+        if color[0] == '?':
+            cur = con.cursor()
+            cur.execute('UPDATE claims SET fog = ? WHERE sector = ?', ('#%02X%02X%02X ' % color, sector))
+            con.commit()
+            cur.close()
+            return str(connection.protocol.fog_color)
 
     owner = claimed_by(sector, connection.name)
 
     if owner == True or connection.admin:
-        if (len(color) == 3):
-            r = int(color[0])
-            g = int(color[1])
-            b = int(color[2])
-            color = (r, g, b)
-        elif (len(color) == 1 and color[0][0] == '#'):
-            color = hex2rgb(color[0])
-        elif color[0] == 'default':
-            color = (128, 232, 255)
+        if color:
+            if (len(color) == 3):
+                r = int(color[0])
+                g = int(color[1])
+                b = int(color[2])
+                color = (r, g, b)
+            elif (len(color) == 1 and color[0][0] == '#'):
+                color = hex2rgb(color[0])
+            elif color[0] == 'default':
+                color = (128, 232, 255)
+            else:
+                color = None
         else:
             color = None
         cur = con.cursor()
@@ -502,13 +506,11 @@ def build(con, x, y, z, color=None):
         set_color = SetColor()
         set_color.player_id = 32
         set_color.value = make_color(*color)
-        con.protocol.broadcast_contained(set_color)
+        con.send_contained(set_color)
         block_action.value = BUILD_BLOCK
-        con.protocol.map.set_point(x, y, z, color)
     else:
         block_action.value = DESTROY_BLOCK
-        con.protocol.map.remove_point(x, y, z)
-    con.protocol.broadcast_contained(block_action, save=True)
+    con.send_contained(block_action)
 
 @command(admin_only=True)
 def fixnameloop(connection):
@@ -559,21 +561,28 @@ def apply_script(protocol, connection, config):
                     block = tuple(block)
                 if block in SIGNS:
                     if player.current_sign:
-                        player.send_cmsg(player.current_sign[0], 'Notice')
-                    else:
-                        x, y, z = block
-                        cur = con.cursor()
-                        text = cur.execute('SELECT text FROM signs WHERE x = ? AND y = ? AND z = ?', (x, y, z)).fetchone()
-                        cur.close()
-                        if text:
-                            player.current_sign = (text[0], self.world.map.get_color(x, y, z), *block)
-                            player.send_cmsg(text[0], 'Notice')
-                            build(player, x, y, z, None)
-                            build(player, x, y, z, (255, 255, 0))
+                        text, color, sign_block = player.current_sign
+                        if block == sign_block:
+                            player.send_cmsg(text, 'Notice')
+                            return
+                        else:
+                            text, color, sign_block = player.current_sign
+                            build(player, *sign_block, color)
+                            player.current_sign = None
+                            player.send_cmsg('\0', 'Notice')
+                    x, y, z = block
+                    cur = con.cursor()
+                    text = cur.execute('SELECT text FROM signs WHERE x = ? AND y = ? AND z = ?', (x, y, z)).fetchone()
+                    cur.close()
+                    if text:
+                        player.current_sign = (text[0], self.world.map.get_color(x, y, z), block)
+                        player.send_cmsg(text[0], 'Notice')
+                        build(player, x, y, z, None)
+                        build(player, x, y, z, (255, 255, 0))
                 else:
                     if player.current_sign:
-                        text, color, x, y, z = player.current_sign
-                        build(player, x, y, z, color)
+                        text, color, sign_block = player.current_sign
+                        build(player, *sign_block, color)
                         player.current_sign = None
                         player.send_cmsg('\0', 'Notice')
 

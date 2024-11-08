@@ -241,8 +241,8 @@ def replace(con, cmd, source, colors):
         return
     try:
         value = int(colors[-1])
+        dither = value
         if value != 0:
-            dither = value
             colors = colors[:-1]
     except:
         dither = 0
@@ -263,7 +263,10 @@ def replace(con, cmd, source, colors):
                 if con.clipboard:
                     lx, ly, lz = [x + 1 for x in con.clipboard[-1][:3]]
                     color = con.clipboard[x % lx * ly * lz + y % ly * lz + z % lz][-1]
-                    queue(con, x, y, z, add_dither(color, dither))
+                    if color:
+                        queue(con, x, y, z, add_dither(color, dither))
+                    else:
+                        queue(con, x, y, z, None)
                 else:
                     return 'Use /copy to create pattern first'
             elif color in ('empty', 'keep'):
@@ -312,7 +315,7 @@ def shift(con, count, direction=None, skip=False):
     Move blocks in selection in given direction or in the direction player is looking at
     /shift <count> <[n]orth, [e]ast, [s]outh, [w]est, [u]p, [d]own> <skip empty space>
     """
-    if selection(con, c_move, (count, direction)):
+    if selection(con, shift, (count, direction)):
         return
     count = int(count)
     i, sign = get_direction(con, direction)
@@ -366,6 +369,7 @@ def copy(con):
     """
     if selection(con, copy, ()):
         return
+    con.clipboard = []
     dx, dy, dz = [min(x, y) for x, y in zip(con.sel_a, con.sel_b)]
     for x, y, z in get_points(con):
         con.clipboard += [[x-dx, y-dy, z-dz, con.protocol.world.map.get_color(x, y, z)]]
