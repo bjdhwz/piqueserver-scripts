@@ -14,7 +14,9 @@ Commands
 .. codeauthor:: Liza
 """
 
+import os
 from piqueserver.commands import command, target_player
+from piqueserver.config import config
 from pyspades import contained as loaders
 from pyspades.common import coordinates
 from twisted.internet.task import LoopingCall
@@ -22,6 +24,15 @@ from twisted.internet.task import LoopingCall
 HIDE_POS = (-256, -256, 63)
 
 ALL_SECTORS = [chr(x // 8 + ord('A')) + str(x % 8 + 1) for x in range(64)]
+
+NOAUTOFLY = []
+
+try:
+    with open(os.path.join(config.config_dir, 'no_fly_list.txt')) as f:
+        NOAUTOFLY = f.read().splitlines()
+except:
+    f = open(os.path.join(config.config_dir, 'no_fly_list.txt'), 'w')
+    f.close()
 
 
 def do_move(con, sector, silent=False, top=False):
@@ -198,6 +209,21 @@ def clear_ammo(connection, player):
     player.send_contained(weapon_reload)
     return "%s's ammo has been cleared" % player.name
 
+@command()
+def autofly(connection):
+    """
+    Toggle auto-fly on join
+    /autofly
+    """
+    if connection.name in NOAUTOFLY:
+        NOAUTOFLY.remove(connection.name)
+        connection.send_chat('Auto-fly has been enabled')
+    else:
+        NOAUTOFLY.append(connection.name)
+        connection.send_chat('Auto-fly has been disabled')
+    with open(os.path.join(config.config_dir, 'no_fly_list.txt'), 'w') as f:
+        f.write('\n'.join(NOAUTOFLY))
+
 
 def apply_script(protocol, connection, config):
     class NoCaptureConnection(connection):
@@ -248,13 +274,16 @@ def apply_script(protocol, connection, config):
                     self.fly = False
                     self.send_chat("You're no longer flying")
             elif team == self.protocol.team_2:
-                self.fly = True
+                if self.name not in NOAUTOFLY:
+                    self.fly = True
             return team
 
         def on_login(self, name):
             connection.on_login(self, name)
             if self.admin:
                 self.god = True
+            if self.name in NOAUTOFLY:
+                self.fly = False
 
         def on_block_destroy(self, x, y, z, value):
             if value == 3: # disables grenade damage

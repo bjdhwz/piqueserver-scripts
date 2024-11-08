@@ -27,6 +27,16 @@ def ruhelp(connection):
         "2) ne port' igru drugim"
         ])
 
+@command()
+def slavhelp(connection): # Interslavic language
+    connection.send_lines([
+        "Prosim do BUILD EMPIRE",
+        "Poljzuj /free da by najdti svobodny sektor i tp tudy komandoju /gt",
+        "Registruj se komandoju /reg da by zashchititi svoj sektor komandoju /claim",
+        "Pravila: 1) ne treba delati arty/flagi, delaj budynky",
+        "2) ne ruinuj igru drugym"
+        ])
+
 
 def apply_script(protocol, connection, config):
     return protocol, connection

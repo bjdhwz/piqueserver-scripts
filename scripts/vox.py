@@ -177,7 +177,7 @@ def apply_script(protocol, connection, config):
                         coords = self.world_object.cast_ray(160)
                         if coords:
                             x, y, z = coords
-                            loadvox(self, *self.voxbrush, x, y, z-2)
+                            loadvox(self, *self.voxbrush, x, y, z-3)
                 if self.savevox_selection:
                     coords = self.world_object.cast_ray(160)
                     if self.savevox_point_a:

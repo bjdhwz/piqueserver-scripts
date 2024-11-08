@@ -14,22 +14,29 @@ import os, sqlite3
 from twisted.internet.task import LoopingCall
 from piqueserver.commands import command, get_player
 from piqueserver.config import config
-from pyspades.common import escape_control_codes, coordinates
+from pyspades.color import interpolate_rgb
+from pyspades.common import escape_control_codes, coordinates, make_color
+from pyspades.constants import BUILD_BLOCK, DESTROY_BLOCK
+from pyspades.contained import BlockAction, FogColor, SetColor
 
 db_path = os.path.join(config.config_dir, 'sqlite.db')
 con = sqlite3.connect(db_path)
 cur = con.cursor()
-cur.execute('CREATE TABLE IF NOT EXISTS claims(sector, owner COLLATE NOCASE, dt, name, mode)')
+cur.execute('CREATE TABLE IF NOT EXISTS claims(sector, owner COLLATE NOCASE, dt, name, mode, fog)')
 cur.execute('CREATE TABLE IF NOT EXISTS shared(sector, player COLLATE NOCASE, dt)')
 cur.execute('CREATE TABLE IF NOT EXISTS signs(x, y, z, text)')
 try:
-    cur.execute('ALTER TABLE claims ADD mode')
+    cur.execute('ALTER TABLE claims ADD fog')
 except:
     pass
 con.commit()
 cur.close()
 
 SECTORS_PER_PLAYER = 9
+
+cur = con.cursor()
+SIGNS = cur.execute('SELECT x, y, z FROM signs').fetchall()
+cur.close()
 
 
 ALL_SECTORS = [chr(x // 8 + ord('A')) + str(x % 8 + 1) for x in range(64)]
@@ -50,6 +57,13 @@ def claimed_by(sector, name=None):
             return owner
         return None
     return False
+
+def hex2rgb(h):
+    h = h.strip('#')
+    if len(h) == 3:
+        h = ''.join([x*2 for x in h])
+    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
 
 @command()
 def claim(connection, sector):
@@ -159,8 +173,8 @@ def sign(connection, *text):
         return "Log in using /login to make changes to your claim"
 
     x, y, z = connection.world_object.cast_ray(12)
-    owner = claimed_by(get_sector(x, y), connection.name)
-    if owner == True or connection.admin:
+    has_access = connection.can_build(x, y, z)
+    if has_access == True or connection.admin:
         cur = con.cursor()
         if text:
             text = escape_control_codes(' '.join(text[:85]))[:85]
@@ -169,10 +183,12 @@ def sign(connection, *text):
                 cur.execute('UPDATE signs SET text = ? WHERE x = ? AND y = ? AND z = ?', (text, x, y, z))
             else:
                 cur.execute('INSERT INTO signs(x, y, z, text) VALUES(?, ?, ?, ?)', (x, y, z, text))
+            SIGNS.append((x, y, z))
             connection.protocol.notify_admins("%s signed a block \"%s\"" % (connection.name, text))
         else:
             text = ''
             cur.execute('DELETE FROM signs WHERE x = ? AND y = ? AND z = ?', (x, y, z))
+            SIGNS.remove((x, y, z))
             connection.protocol.notify_admins("%s unsigned a block" % connection.name)
         con.commit()
         cur.close()
@@ -201,14 +217,20 @@ def claimed(connection, player=None):
 @command('unclaimed', 'free')
 def unclaimed(connection):
     """
-    List unclaimed sectors
+    List unclaimed and public sectors
     /unclaimed
     """
     cur = con.cursor()
     claimed_sectors = [x[0] for x in cur.execute('SELECT sector FROM claims').fetchall()]
     unclaimed_sectors = [x for x in ALL_SECTORS if x not in claimed_sectors]
+    public_sectors = [x[0] for x in cur.execute('SELECT sector FROM claims WHERE mode = "public"').fetchall()]
     cur.close()
-    return ', '.join(unclaimed_sectors)
+    if unclaimed_sectors:
+        connection.send_chat("Unclaimed: " + ', '.join(unclaimed_sectors))
+    else:
+        connection.send_chat("Unclaimed: currently none :(")
+    if public_sectors:
+        connection.send_chat("Build only: " + ', '.join(public_sectors))
 
 @command()
 def unclaim(connection, sector):
@@ -424,14 +446,87 @@ def reserve(connection, sector):
     elif owner == None:
         return "Sector %s is already reserved" % sector
 
+@command()
+def setfog(connection, sector, *color):
+    """
+    Set fog color in a sector
+    /setfog <sector> <color> - supports rgb/hex values. Leave empty to reset.
+    """
+    if not connection.logged_in:
+        return "Log in using /login to make changes to your claim"
+
+    sector = sector.upper()
+    if sector not in ALL_SECTORS:
+        return "Invalid sector. Example of a sector: A1"
+
+    if color[0] == '?':
+        cur = con.cursor()
+        cur.execute('UPDATE claims SET fog = ? WHERE sector = ?', ('#%02X%02X%02X ' % color, sector))
+        con.commit()
+        cur.close()
+        return str(connection.protocol.fog_color)
+
+    owner = claimed_by(sector, connection.name)
+
+    if owner == True or connection.admin:
+        if (len(color) == 3):
+            r = int(color[0])
+            g = int(color[1])
+            b = int(color[2])
+            color = (r, g, b)
+        elif (len(color) == 1 and color[0][0] == '#'):
+            color = hex2rgb(color[0])
+        elif color[0] == 'default':
+            color = (128, 232, 255)
+        else:
+            color = None
+        cur = con.cursor()
+        if color:
+            cur.execute('UPDATE claims SET fog = ? WHERE sector = ?', ('#%02X%02X%02X ' % color, sector))
+            connection.protocol.notify_admins("%s set fog color in %s to %s" % (connection.name, sector, str(color)))
+        else:
+            cur.execute('UPDATE claims SET fog = ? WHERE sector = ?', (None, sector))
+            connection.protocol.notify_admins("%s removed fog color in %s" % (connection.name, sector))
+        con.commit()
+        cur.close()
+        return "Claim fog color updated"
+    return "You can only manage sectors you claim. Claim a sector using /claim first"
+
+def build(con, x, y, z, color=None):
+    block_action = BlockAction()
+    block_action.player_id = 32
+    block_action.x = x
+    block_action.y = y
+    block_action.z = z
+    if color:
+        set_color = SetColor()
+        set_color.player_id = 32
+        set_color.value = make_color(*color)
+        con.protocol.broadcast_contained(set_color)
+        block_action.value = BUILD_BLOCK
+        con.protocol.map.set_point(x, y, z, color)
+    else:
+        block_action.value = DESTROY_BLOCK
+        con.protocol.map.remove_point(x, y, z)
+    con.protocol.broadcast_contained(block_action, save=True)
+
+@command(admin_only=True)
+def fixnameloop(connection):
+    """
+    Debug command to restart loop
+    /fixnameloop
+    """
+    connection.protocol.sector_names_loop.start(self.sector_names_interval)
+
 
 def apply_script(protocol, connection, config):
     class ClaimsProtocol(protocol):
 
         def __init__(self, *arg, **kw):
             protocol.__init__(self, *arg, **kw)
+            self.sector_names_interval = 0.2
             self.sector_names_loop = LoopingCall(self.display_notifications)
-            self.sector_names_loop.start(0.5)
+            self.sector_names_loop.start(self.sector_names_interval)
 
         def display_notifications(self):
             for player in self.players.values():
@@ -440,37 +535,45 @@ def apply_script(protocol, connection, config):
                 x, y, z = player.get_location()
                 if player.current_sector != get_sector(x, y):
                     cur = con.cursor()
-                    res = cur.execute('SELECT name, mode FROM claims WHERE sector = ?', (get_sector(x, y),)).fetchone()
+                    res = cur.execute('SELECT name, mode, fog FROM claims WHERE sector = ?', (get_sector(x, y),)).fetchone()
                     cur.close()
                     if res:
-                        name, mode = res
+                        name, mode, fog = res
                         if name:
                             player.send_cmsg("Welcome to %s" % name, 'Status')
+
                         if mode == 'quest':
                             player.quest_mode = True
                         else:
                             player.quest_mode = False
+
+                        if fog:
+                            player.sector_fog_transition(hex2rgb(fog))
+                        else:
+                            if player.sfog_b:
+                                if player.sfog_b != tuple(self.fog_color):
+                                    player.sector_fog_transition(tuple(self.fog_color))
                     player.current_sector = get_sector(x, y)
-                ray = player.world_object.cast_ray(12)
-                if ray:
-                    if ray != player.last_cast_ray_block:
-                        x, y, z = ray
+                block = player.world_object.cast_ray(32)
+                if block:
+                    block = tuple(block)
+                if block in SIGNS:
+                    if player.current_sign:
+                        player.send_cmsg(player.current_sign[0], 'Notice')
+                    else:
+                        x, y, z = block
                         cur = con.cursor()
                         text = cur.execute('SELECT text FROM signs WHERE x = ? AND y = ? AND z = ?', (x, y, z)).fetchone()
                         cur.close()
                         if text:
-                            if text[0]:
-                                player.current_sign = text[0]
-                                player.send_cmsg(text[0], 'Notice')
-                        else:
-                            if player.current_sign:
-                                player.current_sign = None
-                                player.send_cmsg('\0', 'Notice')
-                    else:
-                        if player.current_sign:
-                            player.send_cmsg(current_sign, 'Notice')
+                            player.current_sign = (text[0], self.world.map.get_color(x, y, z), *block)
+                            player.send_cmsg(text[0], 'Notice')
+                            build(player, x, y, z, None)
+                            build(player, x, y, z, (255, 255, 0))
                 else:
                     if player.current_sign:
+                        text, color, x, y, z = player.current_sign
+                        build(player, x, y, z, color)
                         player.current_sign = None
                         player.send_cmsg('\0', 'Notice')
 
@@ -496,9 +599,32 @@ def apply_script(protocol, connection, config):
             connection.__init__(self, *arg, **kw)
             self.current_sector = None
             self.shared_sectors = None
-            self.last_cast_ray_block = None
             self.current_sign = None
             self.quest_mode = False
+            self.sfog_a = self.protocol.fog_color
+            self.sfog_b = None
+            self.sfog_step = None
+            self.sfog_loop = None
+
+        def sector_fog_transition(self, color):
+            if self.sfog_loop:
+                self.sfog_loop.stop()
+            self.sfog_b = color
+            self.sfog_step = 1
+            self.sfog_loop = LoopingCall(self.update_sector_fog)
+            self.sfog_loop.start(0.05)
+
+        def update_sector_fog(self):
+            sfog_color = FogColor()
+            self.sfog_a = interpolate_rgb(self.sfog_a, self.sfog_b, self.sfog_step / 64)
+            sfog_color.color = make_color(*self.sfog_a)
+            self.send_contained(sfog_color)
+            if self.sfog_step == 64:
+                self.sfog_step = None
+                self.sfog_loop.stop()
+                self.sfog_loop = None
+            else:
+                self.sfog_step += 1
 
         def can_build(self, x, y, z):
             if self.god:
@@ -580,7 +706,7 @@ def apply_script(protocol, connection, config):
         def on_spawn(self, pos):
             self.protocol.sector_names_loop.stop()
             self.protocol.sector_names_loop = LoopingCall(self.protocol.display_notifications)
-            self.protocol.sector_names_loop.start(0.5)
+            self.protocol.sector_names_loop.start(self.protocol.sector_names_interval)
             return connection.on_spawn(self, pos)
 
     return ClaimsProtocol, ClaimsConnection

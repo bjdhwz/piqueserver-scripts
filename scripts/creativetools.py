@@ -36,20 +36,23 @@ colornames = { # colors from polm's worldedit script via Kuma's cfog.py
     'sand': (244, 164, 96), 'chestnut': (149, 69, 53), 'russet': (128, 70, 27), 'cream': (255, 253, 208),
     'sky': (135, 206, 235), 'water': (65, 105, 225), 'smoke': (245, 245, 245), 'classic': (128, 232, 255),
     'fog': (134, 226, 254), 'default': (69, 43, 30), 'player': (216, 164, 107), 'case': (56, 40, 28),
-    'lemon': (255, 255, 127), 'rose': (255, 0, 127), 'fuchsia': (255, 0, 255)
+    'ground': (103, 64, 40), 'lemon': (255, 255, 127), 'rose': (255, 0, 127), 'fuchsia': (255, 0, 255)
 }
 
 def get_rgb(h):
     if h in colornames:
         return colornames[h]
-    elif h in ('0', 'empty', 'keep', 'remove', 'random', 'solid'):
+    elif h in ('0', 'empty', 'keep', 'remove', 'random', 'any', 'solid', 'pattern', 'clipboard'):
         return h
     h = h.strip('#')
     if len(h) == 3:
         h = ''.join([x*2 for x in h])
-    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+    try:
+        return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+    except:
+        pass
 
-def build(con, x, y, z, rgb=None, dither=0, rgbshift=0):
+def build(con, x, y, z, color=None):
     if con.on_block_build_attempt(x, y, z) == False:
         return False
     block_action = BlockAction()
@@ -57,21 +60,27 @@ def build(con, x, y, z, rgb=None, dither=0, rgbshift=0):
     block_action.x = x
     block_action.y = y
     block_action.z = z
-    if rgb:
-        dither = random.choice(range(-int(dither), int(dither)+1))
-        rgb = [int(value) + dither + rgbshift for value in rgb]
-        rgb = [255 if value > 255 else value for value in rgb]
-        rgb = tuple([0 if value < 0 else value for value in rgb])
+    if color:
+        color = [255 if value > 255 else value for value in color]
+        color = tuple([0 if value < 0 else value for value in color])
         set_color = SetColor()
         set_color.player_id = 32
-        set_color.value = make_color(*rgb)
+        set_color.value = make_color(*color)
         con.protocol.broadcast_contained(set_color)
         block_action.value = BUILD_BLOCK
-        con.protocol.map.set_point(x, y, z, rgb)
+        con.protocol.map.set_point(x, y, z, color)
     else:
         block_action.value = DESTROY_BLOCK
         con.protocol.map.remove_point(x, y, z)
     con.protocol.broadcast_contained(block_action, save=True)
+
+def queue(con, x, y, z, color=False):
+    if ((x in range(512)) and (y in range(512)) and (z in range(64))):
+        con.undo[-1][1] += [(x, y, z, con.protocol.world.map.get_color(x, y, z))]
+        if color != False:
+            con.build_queue += [(x, y, z, color)]
+        else:
+            con.build_queue += [(x, y, z, con.protocol.world.map.get_color(x, y, z))]
 
 def get_points(con):
     points = []
@@ -88,6 +97,9 @@ def get_points(con):
         x1 = (max(c[0]) - min(c[0]) + 1) // 2
         y1 = (max(c[1]) - min(c[1]) + 1) // 2
         z1 = (max(c[2]) - min(c[2]) + 1) // 2
+        if x1 == 0: x1 = 1
+        if y1 == 0: y1 = 1
+        if z1 == 0: z1 = 1
         for x in range(min(c[0]), max(c[0])+1):
             for y in range(min(c[1]), max(c[1])+1):
                 for z in range(min(c[2]), max(c[2])+1):
@@ -129,7 +141,11 @@ def add_undo_step(con):
         con.undo = con.undo[-MAX_UNDO:]
     con.redo = []
 
-@command()
+def add_dither(color, dither):
+    dither = random.choice(range(-int(dither), int(dither)+1))
+    return tuple([min(max(int(value) + dither, 0), 255) for value in color])
+
+@command('s', 'sel')
 def sel(con, shape='cuboid'):
     """
     Select area
@@ -154,15 +170,15 @@ def sel(con, shape='cuboid'):
         return 'Selection started. Select two points by clicking on corner blocks'
 
 @command()
-def desel(con):
+def unsel(con):
     """
-    Reset selection
-    /desel
+    Remove selection
+    /unsel
     """
     con.selection = False
     con.sel_a = None
     con.sel_b = None
-    return 'Selection resetted'
+    return 'Selection removed'
 
 @command()
 def expand(con, amount, direction=None):
@@ -220,58 +236,81 @@ def selection(con, func, args):
         con.deferred = (func, args)
         return True
 
+def replace(con, cmd, source, colors):
+    if selection(con, cmd, colors):
+        return
+    try:
+        value = int(colors[-1])
+        if value != 0:
+            dither = value
+            colors = colors[:-1]
+    except:
+        dither = 0
+    if not colors:
+        colors = ('#%02X%02X%02X ' % con.color,)
+    weights = [int(x.split('%')[0]) if '%' in x else 1 for x in colors]
+    colors = [get_rgb(x.split('%')[1]) if '%' in x else get_rgb(x) for x in colors]
+    add_undo_step(con)
+    for x, y, z in get_points(con):
+        block = con.protocol.world.map.get_color(x, y, z)
+        if source == 'any' or source == block or (source == 'solid' and block) or (source == None and block == None):
+            color = random.choices(colors, weights, k = 1)[0]
+            if color == 'random':
+                queue(con, x, y, z, random.choices(range(256), k=3))
+            elif color in ('0', 'remove'):
+                queue(con, x, y, z, None)
+            elif color in ('pattern', 'clipboard'):
+                if con.clipboard:
+                    lx, ly, lz = [x + 1 for x in con.clipboard[-1][:3]]
+                    color = con.clipboard[x % lx * ly * lz + y % ly * lz + z % lz][-1]
+                    queue(con, x, y, z, add_dither(color, dither))
+                else:
+                    return 'Use /copy to create pattern first'
+            elif color in ('empty', 'keep'):
+                queue(con, x, y, z)
+            else:
+                queue(con, x, y, z, add_dither(color, dither))
+        else:
+            queue(con, x, y, z)
+    con.build_queue_start()
+
 @command('set')
 def c_set(con, *colors):
     """
     Fill selection with blocks
-    /set <#aaa/red (color names are supported)> <#bbb - colors will be mixed randomly> <5%#ccc - % is used to set ratio, in this case with three colors it'll be 1:1:5>
+    /set <#aaa/red (color names are supported)> <#bbb - colors will be mixed randomly> <5%#ccc - % is used to set ratio, in this case with three colors it'll be 1:1:5> <dither>
     """
-    if selection(con, c_set, colors):
-        return
-    weights = [int(x.split('%')[0]) if '%' in x else 1 for x in colors]
-    colors = [get_rgb(x.split('%')[1]) if '%' in x else get_rgb(x) for x in colors]
-    add_undo_step(con)
-    for x, y, z in get_points(con):
-        color = random.choices(colors, weights, k = 1)[0]
-        con.undo[-1][1] += [(x, y, z, con.protocol.world.map.get_color(x, y, z))]
-        if color == 'random':
-            color = random.choices(range(256), k=3)
-        elif color in ('0', 'remove'):
-            con.build_queue += [(x, y, z, None)]
-        elif color not in ('empty', 'keep'):
-            con.build_queue += [(x, y, z, color)]
-    con.build_queue_start()
+    replace(con, c_set, 'any', colors)
 
 @command('re', 'rep', 'replace')
-def replace(con, source, *colors):
+def c_replace(con, *colors):
     """
-    Replace color in selection
-    /replace <source color> <target colors (same syntax as /set)>
+    Replace player-held color in selection
+    /replace <target colors (same syntax as /set)>
     """
-    if selection(con, replace, (source, *colors)):
-        return
-    source = get_rgb(source)
-    weights = [int(x.split('%')[0]) if '%' in x else 1 for x in colors]
-    colors = [get_rgb(x.split('%')[1]) if '%' in x else get_rgb(x) for x in colors]
-    add_undo_step(con)
-    for x, y, z in get_points(con):
-        color = random.choices(colors, weights, k = 1)[0]
-        p_color = con.protocol.world.map.get_color(x, y, z)
-        con.undo[-1][1] += [(x, y, z, p_color)]
-        if source == p_color or (source in ('0', 'empty') and p_color == None) or (source == 'solid' and p_color):
-            if color == 'random':
-                color = random.choices(range(256), k=3)
-            elif color == ('0', 'remove'):
-                con.build_queue += [(x, y, z, None)]
-            elif color not in ('empty', 'keep'):
-                con.build_queue += [(x, y, z, color)]
-    con.build_queue_start()
+    replace(con, c_replace, con.color, colors)
 
-@command('mov')
-def c_move(con, count, direction=None, skip=False):
+@command()
+def fill(con, *colors):
+    """
+    Replace empty space in selection
+    /fill <target colors (same syntax as /set)>
+    """
+    replace(con, fill, None, colors)
+
+@command()
+def repaint(con, *colors):
+    """
+    Replace all solid (non-empty) blocks in selection
+    /repaint <target colors (same syntax as /set)>
+    """
+    replace(con, repaint, 'solid', colors)
+
+@command('shift', 'mov')
+def shift(con, count, direction=None, skip=False):
     """
     Move blocks in selection in given direction or in the direction player is looking at
-    /move <count> <[n]orth, [e]ast, [s]outh, [w]est, [u]p, [d]own> <skip empty space>
+    /shift <count> <[n]orth, [e]ast, [s]outh, [w]est, [u]p, [d]own> <skip empty space>
     """
     if selection(con, c_move, (count, direction)):
         return
@@ -280,18 +319,18 @@ def c_move(con, count, direction=None, skip=False):
     add_undo_step(con)
     buffer = []
     for x, y, z in get_points(con):
-        con.undo[-1][1] += [(x, y, z, con.protocol.world.map.get_color(x, y, z))]
         buffer += [[x, y, z, con.protocol.world.map.get_color(x, y, z)]]
-        con.build_queue += [(x, y, z, None)]
+        queue(con, x, y, z, None)
     for point in buffer:
         point[i] += count*sign
         x, y, z, color = point
-        con.undo[-1][1] += [(x, y, z, con.protocol.world.map.get_color(x, y, z))]
         if skip:
             if color:
-                con.build_queue += [(x, y, z, color)]
+                queue(con, x, y, z, color)
+            else:
+                queue(con, x, y, z)
         else:
-            con.build_queue += [(x, y, z, color)]
+            queue(con, x, y, z, color)
     ax, ay, az, color = buffer[0]
     con.sel_a = [ax, ay, az]
     bx, by, bz, color = buffer[-1]
@@ -316,9 +355,7 @@ def stack(con, count, direction=None):
     for j in range(count):
         for point in buffer:
             point[i] += sizes[i]*sign
-            x, y, z, color = point
-            con.undo[-1][1] += [(x, y, z, con.protocol.world.map.get_color(x, y, z))]
-            con.build_queue += [(x, y, z, color)]
+            queue(*point)
     con.build_queue_start()
 
 @command()
@@ -345,8 +382,7 @@ def cut(con):
     dx, dy, dz = [min(x, y) for x, y in zip(con.sel_a, con.sel_b)]
     for x, y, z in get_points(con):
         con.clipboard += [[x-dx, y-dy, z-dz, con.protocol.world.map.get_color(x, y, z)]]
-        con.undo[-1][1] += [(x, y, z, con.protocol.world.map.get_color(x, y, z))]
-        con.build_queue += [(x, y, z, None)]
+        queue(con, x, y, z, None)
     con.build_queue_start()
 
 @command()
@@ -365,12 +401,13 @@ def paste(con, skip=False):
         x += int(px) + 1
         y += int(py) + 1
         z += int(pz) + 2 - dz
-        con.undo[-1][1] += [(x, y, z, con.protocol.world.map.get_color(x, y, z))]
         if skip:
             if color:
-                con.build_queue += [(x, y, z, color)]
+                queue(con, x, y, z, color)
+            else:
+                queue(con, x, y, z)
         else:
-            con.build_queue += [(x, y, z, color)]
+            queue(con, x, y, z, color)
     x, y, z, color = con.clipboard[0]
     con.sel_a = [x + int(px) + 1, y + int(py) + 1, z + int(pz) + 2 - dz]
     x, y, z, color = con.clipboard[-1]
@@ -391,9 +428,8 @@ def rotate(con, rz=1, ry=0, rx=0):
     lx, ly, lz = [max(x) - min(x) for x in zip(con.sel_a, con.sel_b)]
     dx, dy, dz = [min(x, y) for x, y in zip(con.sel_a, con.sel_b)]
     for x, y, z in get_points(con):
-        con.undo[-1][1] += [(x, y, z, con.protocol.world.map.get_color(x, y, z))]
         buffer += [[x-dx, y-dy, z-dz, con.protocol.world.map.get_color(x, y, z)]]
-        con.build_queue += [(x, y, z, None)]
+        queue(con, x, y, z, None)
 
     for i in range(int(rz)):
         rot_buffer = []
@@ -421,11 +457,7 @@ def rotate(con, rz=1, ry=0, rx=0):
 
     for point in buffer:
         x, y, z, color = point
-        x = int(x)
-        y = int(y)
-        z = int(z)
-        con.undo[-1][1] += [(x+dx, y+dy, z+dz, con.protocol.world.map.get_color(x+dx, y+dy, z+dz))]
-        con.build_queue += [(x+dx, y+dy, z+dz, color)]
+        queue(con, int(x)+dx, int(y)+dy, int(z)+dz, color)
     ax, ay, az, color = rot_buffer[0]
     con.sel_a = [ax+dx, ay+dy, az+dz]
     bx, by, bz, color = rot_buffer[-1]
@@ -446,9 +478,8 @@ def flip(con, plane):
     lx, ly, lz = [max(x) - min(x) for x in zip(con.sel_a, con.sel_b)]
     dx, dy, dz = [min(x, y) for x, y in zip(con.sel_a, con.sel_b)]
     for x, y, z in get_points(con):
-        con.undo[-1][1] += [(x, y, z, con.protocol.world.map.get_color(x, y, z))]
         buffer += [[x-dx, y-dy, z-dz, con.protocol.world.map.get_color(x, y, z)]]
-        con.build_queue += [(x, y, z, None)]
+        queue(con, x, y, z, None)
     rot_buffer = []
     for point in buffer:
         x, y, z, color = point
@@ -461,19 +492,17 @@ def flip(con, plane):
     buffer = rot_buffer.copy()
     for point in buffer:
         x, y, z, color = point
-        x = int(x)
-        y = int(y)
-        z = int(z)
-        con.undo[-1][1] += [(x+dx, y+dy, z+dz, con.protocol.world.map.get_color(x+dx, y+dy, z+dz))]
-        con.build_queue += [(x+dx, y+dy, z+dz, color)]
+        queue(con, int(x)+dx, int(y)+dy, int(z)+dz, color)
     con.build_queue_start()
 
 @command()
-def brush(con, radius=None):
+def brush(con, radius=None, mode='set', *colors):
     """
     Toggle brush mode
-    /brush <radius>
+    /brush <radius> <set/replace/fill/repaint>
     """
+    con.brush_mode = mode
+    con.brush_colors = colors
     if radius:
         radius = int(radius)
         if radius > 32:
@@ -494,32 +523,21 @@ def brush(con, radius=None):
         return 'Brush enabled'
 
 def brush_build(con, x, y, z, action):
-    add_undo_step(con)
-    a = [x + con.brush_size, y + con.brush_size, z + con.brush_size]
-    b = [x - con.brush_size, y - con.brush_size, z - con.brush_size]
-    points = []
-    a = [x if x > 0 else 0 for x in a]
-    a = [x if x < 511 else 511 for x in a]
-    if a[2] > 63: a[2] = 63
-    b = [x if x > 0 else 0 for x in b]
-    b = [x if x < 511 else 511 for x in b]
-    if b[2] > 63: b[2] = 63
-    center = [(x+y)/2 for x, y in zip(a, b)]
-    x2 = (a[0] - b[0] + 1) // 2
-    y2 = (a[1] - b[1] + 1) // 2
-    z2 = (a[2] - b[2] + 1) // 2
-    for x1 in range(b[0], a[0]+1):
-        for y1 in range(b[1], a[1]+1):
-            for z1 in range(b[2], a[2]+1):
-                value = (x1 - center[0]) ** 2 / x2**2 + (y1 - center[1]) ** 2 / y2**2 + (z1 - center[2]) ** 2 / z2**2
-                if value <= 1:
-                    points += [(x1, y1, z1)]
-                    con.undo[-1][1] += [(x1, y1, z1, con.protocol.world.map.get_color(x1, y1, z1))]
-                    if action == 'build':
-                        con.build_queue += [(x1, y1, z1, con.color)]
-                    elif action == 'destroy':
-                        con.build_queue += [(x1, y1, z1, None)]
-    con.build_queue_start()
+    con.sel_a = (x + con.brush_size, y + con.brush_size, z + con.brush_size)
+    con.sel_b = (x - con.brush_size, y - con.brush_size, z - con.brush_size)
+    con.sel_shape = 'ellipsoid'
+
+    if action == 'build':
+        if con.brush_mode == 'set':
+            replace(con, c_set, 'any', con.brush_colors)
+        elif con.brush_mode == 'replace':
+            replace(con, c_replace, con.color, con.brush_colors)
+        elif con.brush_mode == 'fill':
+            replace(con, fill, None, con.brush_colors)
+        elif con.brush_mode == 'repaint':
+            replace(con, repaint, 'solid', con.brush_colors)
+    elif action == 'destroy':
+        replace(con, c_set, 'any', ('remove',))
 
 @command()
 def center(con):
@@ -534,8 +552,7 @@ def center(con):
     for x1 in range(int(x), math.ceil(x)+1):
         for y1 in range(int(y), math.ceil(y)+1):
             for z1 in range(int(z), math.ceil(z)+1):
-                con.undo[-1][1] += [(x1, y1, z1, con.protocol.world.map.get_color(x1, y1, z1))]
-                con.build_queue += [(x1, y1, z1, con.color)]
+                queue(con, x1, y1, z1, con.color)
     con.build_queue_start()
 
 @command()
@@ -553,8 +570,8 @@ def undo(con, steps=1):
             x, y, z, color = p
             con.redo[-1][1] += [(x, y, z, con.protocol.world.map.get_color(x, y, z))]
             con.build_queue += [(x, y, z, color)]
-        con.build_queue_start()
         con.undo = con.undo[:-1]
+    con.build_queue_start()
 
 @command()
 def redo(con, steps=1):
@@ -571,8 +588,8 @@ def redo(con, steps=1):
             x, y, z, color = p
             con.undo[-1][1] += [(x, y, z, con.protocol.world.map.get_color(x, y, z))]
             con.build_queue += [(x, y, z, color)]
-        con.build_queue_start()
         con.redo = con.redo[:-1]
+    con.build_queue_start()
 
 
 def apply_script(protocol, connection, config):
@@ -591,6 +608,7 @@ def apply_script(protocol, connection, config):
             self.deferred = None
             self.brush = False
             self.brush_size = 1
+            self.brush_mode = 'set'
             self.clipboard = []
 
         def on_shoot_set(self, state):
@@ -599,30 +617,31 @@ def apply_script(protocol, connection, config):
                     if not self.build_queue:
                         coords = self.world_object.cast_ray(160)
                         if coords:
-                            brush_build(self, *coords, 'build')
+                            brush_build(self, *list(coords), 'build')
                 if self.selection:
-                    coords = list(self.world_object.cast_ray(160))
-                    if self.sel_a:
-                        self.sel_b = coords
-                        self.send_chat('Selection created')
-                        if self.deferred:
-                            func, args = self.deferred
-                            func(self, *args)
-                            self.deferred = None
-                    else:
-                        self.sel_a = coords
-                        self.send_chat('First corner has been selected')
+                    coords = self.world_object.cast_ray(160)
+                    if coords:
+                        if self.sel_a:
+                            self.sel_b = list(coords)
+                            self.send_chat('Selection created')
+                            if self.deferred:
+                                func, args = self.deferred
+                                func(self, *args)
+                                self.deferred = None
+                        else:
+                            self.sel_a = list(coords)
+                            self.send_chat('First corner has been selected')
             connection.on_shoot_set(self, state)
 
         def on_secondary_fire_set(self, state):
             if state == True:
-                if self.brush:
-                    coords = list(self.world_object.cast_ray(160))
-                    brush_build(self, *coords, 'destroy')
-                if self.selection:
-                    coords = list(self.world_object.cast_ray(160))
-                    self.sel_a = coords
-                    self.send_chat('First corner has been redefined')
+                coords = self.world_object.cast_ray(160)
+                if coords:
+                    if self.brush:
+                        brush_build(self, *list(coords), 'destroy')
+                    if self.selection:
+                        self.sel_a = list(coords)
+                        self.send_chat('First corner has been redefined')
             connection.on_secondary_fire_set(self, state)
 
         def build_queue_start(self):
