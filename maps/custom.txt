@@ -1,0 +1,25 @@
+# vi: ft=python
+from pyspades import mapmaker
+
+name = 'Custom'
+version = '1.0'
+author = 'Liza'
+#description = ('Custom map')
+
+
+def gen_script(basename, seed):
+    # define the gradients
+    default = mapmaker.Gradient()
+    default.rgb(0, (127, 127, 127), 64, (127, 127, 127))
+    # define biomes (gradient + avg. height infos)
+    # default_biome = mapmaker.Biome(default, 0.99, 0.0, 0.0) # 1 block height
+    default_biome = mapmaker.Biome(default, 1.00, 0.0, 0.0) # 0 block height
+    # biome map - tiled biome instances
+    bmap = mapmaker.BiomeMap([default_biome], 32, 32)
+    hmap, gradients = bmap.create_heightmap()
+    #hmap.line_add(100, 100, 200, 200, 8, 0.005)
+    #hmap.line_set(100, 100, 200, 200, 2, 2.0)
+    hmap.rewrite_gradient_fill(gradients)
+    hmap.smooth_colors()
+    vxl = hmap.write_vxl()
+    return vxl
