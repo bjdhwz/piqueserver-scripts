@@ -518,7 +518,7 @@ def fixnameloop(connection):
     Debug command to restart loop
     /fixnameloop
     """
-    connection.protocol.sector_names_loop.start(self.sector_names_interval)
+    connection.protocol.sector_names_loop.start(connection.sector_names_interval)
 
 
 def apply_script(protocol, connection, config):
@@ -539,22 +539,18 @@ def apply_script(protocol, connection, config):
                     cur = con.cursor()
                     res = cur.execute('SELECT name, mode, fog FROM claims WHERE sector = ?', (get_sector(x, y),)).fetchone()
                     cur.close()
+                    fog = tuple(self.fog_color)
                     if res:
-                        name, mode, fog = res
+                        name, mode, fog_db = res
+                        if fog_db:
+                            fog = hex2rgb(fog_db)
                         if name:
                             player.send_cmsg("Welcome to %s" % name, 'Status')
-
                         if mode == 'quest':
                             player.quest_mode = True
                         else:
                             player.quest_mode = False
-
-                        if fog:
-                            player.sector_fog_transition(hex2rgb(fog))
-                        else:
-                            if player.sfog_b:
-                                if player.sfog_b != tuple(self.fog_color):
-                                    player.sector_fog_transition(tuple(self.fog_color))
+                    player.sector_fog_transition(fog)
                     player.current_sector = get_sector(x, y)
                 block = player.world_object.cast_ray(32)
                 if block:
