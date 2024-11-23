@@ -152,27 +152,27 @@ def mbshape(connection, shape=None, adjust_z=0):
                 elif shape == "pyramid" or shape == "diamond":
                     condition = (x < z and y < z)
                 if condition:
-                    connection.regblocks.append((x, y, z, dir))
+                    connection.regblocks.append((x, y, z, dir, connection.color))
     parts = set()
     for regblock in connection.regblocks:
         rx, ry, rz = regblock[0], regblock[1], regblock[2]
         if shape == "pyramid" or shape == "diamond":
             rz = rz * -1 + radius
-        parts.add((rx, ry, rz * -1, dir))
-        parts.add((rx, ry * -1, rz * -1, dir))
-        parts.add((rx * -1, ry, rz * -1, dir))
-        parts.add((rx * -1, ry * -1, rz * -1, dir))
+        parts.add((rx, ry, rz * -1, dir, connection.color))
+        parts.add((rx, ry * -1, rz * -1, dir, connection.color))
+        parts.add((rx * -1, ry, rz * -1, dir, connection.color))
+        parts.add((rx * -1, ry * -1, rz * -1, dir, connection.color))
         if add_bottom:
             if shape == "diamond":
                 rz -= 2
-            parts.add((rx, ry, rz, dir))
-            parts.add((rx, ry * -1, rz, dir))
-            parts.add((rx * -1, ry, rz, dir))
-            parts.add((rx * -1, ry * -1, rz, dir))
+            parts.add((rx, ry, rz, dir, connection.color))
+            parts.add((rx, ry * -1, rz, dir, connection.color))
+            parts.add((rx * -1, ry, rz, dir, connection.color))
+            parts.add((rx * -1, ry * -1, rz, dir, connection.color))
     connection.regblocks = list(parts)
     starting_z = (-int(radius / 2) if add_bottom and not shape == "diamond"
                   else -radius + 1)
-    connection.regblocks.append((0, 0, starting_z + adjust_z, dir))
+    connection.regblocks.append((0, 0, starting_z + adjust_z, dir, connection.color))
     return "Shape loaded. Use it now with /mb"
 
 
@@ -296,7 +296,7 @@ def rollout_multiblocks(self, coord, destroy=False):
             callLater(delay, destroy_block, self, mb_x, mb_y, mb_z)
             delay += BUILD_DELAY
         elif not destroy and not is_solid:
-            callLater(delay, build_block, self, mb_x, mb_y, mb_z, self.color)
+            callLater(delay, build_block, self, mb_x, mb_y, mb_z, regblock[-1])
             delay += BUILD_DELAY
 
 
@@ -311,7 +311,7 @@ def apply_script(protocol, connection, config):
 
         def on_block_build(self, x, y, z):
             if self.is_registering:
-                self.regblocks.append((x, y, z, get_direction(self)))
+                self.regblocks.append((x, y, z, get_direction(self), self.color))
             elif self.is_multibuilding:
                 rollout_multiblocks(self, (x, y, z))
                 if self.god:
@@ -322,7 +322,7 @@ def apply_script(protocol, connection, config):
             if self.is_registering:
                 for point in points:
                     self.regblocks.append((point[0], point[1], point[2],
-                                           get_direction(self)))
+                                           get_direction(self), self.color))
             elif self.is_multibuilding:
                 delay = 0
                 for point in points:

@@ -4,9 +4,9 @@ Yet another building script. Some worldedit-like commands + custom features.
 .. codeauthor:: Liza
 """
 
-import math, random
+import colorsys, math, random
 from piqueserver.commands import command
-from pyspades.common import make_color
+from pyspades.common import coordinates, make_color
 from pyspades.constants import BUILD_BLOCK, DESTROY_BLOCK
 from pyspades.contained import BlockAction, SetColor
 from twisted.internet.task import LoopingCall
@@ -42,15 +42,13 @@ colornames = { # colors from polm's worldedit script via Kuma's cfog.py
 def get_rgb(h):
     if h in colornames:
         return colornames[h]
-    elif h in ('0', 'empty', 'keep', 'remove', 'random', 'any', 'solid', 'pattern', 'clipboard'):
-        return h
-    h = h.strip('#')
-    if len(h) == 3:
-        h = ''.join([x*2 for x in h])
     try:
+        h = h.strip('#')
+        if len(h) == 3:
+            h = ''.join([x*2 for x in h])
         return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
     except:
-        pass
+        return h
 
 def build(con, x, y, z, color=None):
     if con.on_block_build_attempt(x, y, z) == False:
@@ -74,9 +72,10 @@ def build(con, x, y, z, color=None):
         con.protocol.map.remove_point(x, y, z)
     con.protocol.broadcast_contained(block_action, save=True)
 
-def queue(con, x, y, z, color=False):
+def queue(con, x, y, z, color=False, save_history=True):
     if ((x in range(512)) and (y in range(512)) and (z in range(64))):
-        con.undo[-1][1] += [(x, y, z, con.protocol.world.map.get_color(x, y, z))]
+        if save_history:
+            con.undo[-1][1] += [(x, y, z, con.protocol.world.map.get_color(x, y, z))]
         if color != False:
             con.build_queue += [(x, y, z, color)]
         else:
@@ -236,16 +235,19 @@ def selection(con, func, args):
         con.deferred = (func, args)
         return True
 
-def replace(con, cmd, source, colors):
-    if selection(con, cmd, colors):
+def replace(con, source, colors):
+    if selection(con, replace, (source, colors)):
         return
     try:
-        value = int(colors[-1])
-        dither = value
-        if value != 0:
+        value = colors[-1]
+        if type(value) == type(0.0):
             colors = colors[:-1]
+        else:
+            value = int(value)
+            if value != 0:
+                colors = colors[:-1]
     except:
-        dither = 0
+        value = 0
     if not colors:
         colors = ('#%02X%02X%02X ' % con.color,)
     weights = [int(x.split('%')[0]) if '%' in x else 1 for x in colors]
@@ -264,18 +266,36 @@ def replace(con, cmd, source, colors):
                     lx, ly, lz = [x + 1 for x in con.clipboard[-1][:3]]
                     color = con.clipboard[x % lx * ly * lz + y % ly * lz + z % lz][-1]
                     if color:
-                        queue(con, x, y, z, add_dither(color, dither))
+                        queue(con, x, y, z, add_dither(color, value))
                     else:
                         queue(con, x, y, z, None)
                 else:
                     return 'Use /copy to create pattern first'
+            elif color in ('H=', 'L=', 'S=', 'H+', 'L+', 'S+'):
+                h, l, s = colorsys.rgb_to_hls(*[x/255 for x in block])
+                if color == 'H=': h = value
+                elif color == 'L=': l = value
+                elif color == 'S=': s = value
+                elif color == 'H+': h += value
+                elif color == 'L+': l += value
+                elif color == 'S+': s += value
+                if h > 1: h -= 1
+                elif h < 0: h += 1
+                hls = [min(max(x, 0), 1) for x in (h, l, s)]
+                queue(con, x, y, z, [int(x*255) for x in colorsys.hls_to_rgb(*hls)])
+            elif color == 'crossprocess':
+                r, g, b = block
+                queue(con, x, y, z, (r, g, int(value)))
+            elif color == 'noise':
+                queue(con, x, y, z, add_dither(block, value))
             elif color in ('empty', 'keep'):
                 queue(con, x, y, z)
             else:
-                queue(con, x, y, z, add_dither(color, dither))
+                queue(con, x, y, z, add_dither(color, value))
         else:
             queue(con, x, y, z)
     con.build_queue_start()
+
 
 @command('set')
 def c_set(con, *colors):
@@ -283,7 +303,7 @@ def c_set(con, *colors):
     Fill selection with blocks
     /set <#aaa/red (color names are supported)> <#bbb - colors will be mixed randomly> <5%#ccc - % is used to set ratio, in this case with three colors it'll be 1:1:5> <dither>
     """
-    replace(con, c_set, 'any', colors)
+    replace(con, 'any', colors)
 
 @command('re', 'rep', 'replace')
 def c_replace(con, *colors):
@@ -291,7 +311,7 @@ def c_replace(con, *colors):
     Replace player-held color in selection
     /replace <target colors (same syntax as /set)>
     """
-    replace(con, c_replace, con.color, colors)
+    replace(con, con.color, colors)
 
 @command()
 def fill(con, *colors):
@@ -299,7 +319,7 @@ def fill(con, *colors):
     Replace empty space in selection
     /fill <target colors (same syntax as /set)>
     """
-    replace(con, fill, None, colors)
+    replace(con, None, colors)
 
 @command()
 def repaint(con, *colors):
@@ -307,7 +327,94 @@ def repaint(con, *colors):
     Replace all solid (non-empty) blocks in selection
     /repaint <target colors (same syntax as /set)>
     """
-    replace(con, repaint, 'solid', colors)
+    replace(con, 'solid', colors)
+
+
+@command()
+def hue(con, value=0.0):
+    """
+    /hue <value>
+    """
+    h, l, s = colorsys.rgb_to_hls(*[x/255 for x in con.color])
+    replace(con, 'solid', ('H=', h))
+
+@command()
+def hueshift(con, value=0.618):
+    """
+    /hueshift <value>
+    """
+    value = float(value)
+    if abs(value) > 1: value /= 100
+    replace(con, 'solid', ('H+', value))
+
+@command()
+def brightness(con, value=0.0):
+    """
+    /brightness <value>
+    """
+    value = float(value)
+    if abs(value) > 1: value /= 100
+    replace(con, 'solid', ('L=', value))
+
+@command('lighten', 'brightness')
+def lighten(con, value=0.2):
+    """
+    /lighten <value>
+    """
+    value = float(value)
+    if value > 1: value /= 100
+    replace(con, 'solid', ('L+', value))
+
+@command()
+def darken(con, value=0.2):
+    """
+    /darken <value>
+    """
+    value = float(value)
+    if value > 1: value /= 100
+    replace(con, 'solid', ('L+', -value))
+
+@command()
+def saturation(con, value=0.0):
+    """
+    /saturation <value>
+    """
+    value = float(value)
+    if abs(value) > 1: value /= 100
+    replace(con, 'solid', ('S=', value))
+
+@command()
+def saturate(con, value=0.2):
+    """
+    /saturate <value>
+    """
+    value = float(value)
+    if value > 1: value /= 100
+    replace(con, 'solid', ('S+', value))
+
+@command()
+def desaturate(con, value=0.2):
+    """
+    /desaturate <value>
+    """
+    value = float(value)
+    if value > 1: value /= 100
+    replace(con, 'solid', ('S+', -value))
+
+@command()
+def crossprocess(con, value=153):
+    """
+    /crossprocess <value>
+    """
+    replace(con, 'solid', ('crossprocess', float(value)))
+
+@command()
+def noise(con, value=3):
+    """
+    /noise <value>
+    """
+    replace(con, 'solid', ('noise', float(value)))
+
 
 @command('shift', 'mov')
 def shift(con, count, direction=None, skip=False):
@@ -358,7 +465,7 @@ def stack(con, count, direction=None):
     for j in range(count):
         for point in buffer:
             point[i] += sizes[i]*sign
-            queue(*point)
+            queue(con, *point)
     con.build_queue_start()
 
 @command()
@@ -373,6 +480,7 @@ def copy(con):
     dx, dy, dz = [min(x, y) for x, y in zip(con.sel_a, con.sel_b)]
     for x, y, z in get_points(con):
         con.clipboard += [[x-dx, y-dy, z-dz, con.protocol.world.map.get_color(x, y, z)]]
+    return 'Selection copied'
 
 @command()
 def cut(con):
@@ -559,6 +667,88 @@ def center(con):
                 queue(con, x1, y1, z1, con.color)
     con.build_queue_start()
 
+
+def random_repeat(length, colors, ratio):
+    array = [random.choice(range(colors))]
+    i = 1
+    while i < length:
+        action = random.random() > ratio
+        if action:
+            n = i & (~(i - 1))
+            array += array[-n:]
+            i += n
+        else:
+            array += [random.choice(range(colors))]
+            i += 1
+    return array
+
+@command('randomrepeat', 'rr')
+def randomrepeat(con, colors='2%#444,2%#555,2%#343,2%#554,2%#565,2%#455,2%#465,#C92', ratio_empty=1, randomness=0.5, dither=0):
+    """
+    /randomrepeat <colors> <emptiness> <randomness> <dither>
+    """
+    if selection(con, randomrepeat, (colors, ratio_empty, randomness, dither)):
+        return
+##    add_undo_step(con)
+    weights = [int(x.split('%')[0]) if '%' in x else 1 for x in colors.split(',')]
+    weights += [round(sum(weights) * float(ratio_empty))]
+    colors = [get_rgb(x.split('%')[1]) if '%' in x else get_rgb(x) for x in colors.split(',')]
+    colors += [None]
+    colors = [[x] * y for x, y in zip(colors, weights)]
+    colors = [x for y in colors for x in y]
+    n = 64
+    volume = random_repeat(n**3, len(colors), float(randomness))
+    for x, y, z in get_points(con):
+        color = colors[volume[(x % n) * n**2 + (y % n) * n + z]]
+        if color:
+            queue(con, x, y, z, add_dither(color, int(dither)), False)
+        else:
+            queue(con, x, y, z, None, False)
+    con.build_queue_start()
+
+@command()
+def forestgen(con, sector, dither=3):
+    """
+    /forestgen
+    """
+##    if selection(con, randomrepeat, (colors, ratio_empty, randomness, dither)):
+##        return
+    add_undo_step(con)
+    a = [x**0.5 for x in [0, 1, 2, 4, 5, 8, 9, 10, 13, 16, 17]]
+    b = [(x-0.5)**0.5 for x in [1, 3, 5, 7, 9, 13, 15, 19, 21, 23, 25]]
+    treetypes = [
+        (a, (0,0),(0,0),(1,1),(2,1),(2,1),(2,1),(1,1),(1,1),(1,1),(0,1),(0,1)), # cypress
+        (a, (0,0),(3,1),(4,1),(3,1),(1,1),(3,1),(1,1),(0,1),(1,1),(0,1),(0,1)), # spruce
+        (a, (1,0),(4,1),(7,1),(4,1),(3,1),(4,1),(3,1),(1,1),(3,1),(1,1),(0,1),(1,1),(0,1),(0,1)), # big spruce
+        (b, (1,0),(0,0),(3,1),(4,1),(4,1),(3,1),(1,1)),
+        (b, (1,0),(0,0),(4,1),(3,1),(4,1),(3,1),(1,1)),
+        (b, (1,0),(0,0),(0,0),(1,1),(3,1),(4,1),(3,1),(4,1),(3,1),(1,1)),
+        ]
+    treetypes += [(a, (1,1),(0,1))] * len(treetypes) # shrub
+##    treetypes += [
+##        (b, (0,2),(0,2),(1,3),(0,3)), # mushroom
+##        (a, (0,2),(0,2),(1,4),(0,4)), # red mushroom
+##        ]
+
+    for i in range(128):
+        tree = random.choice(treetypes)
+        x1 = random.choice(range(4, 60)) - (tree[0] == b) * 0.5
+        y1 = random.choice(range(4, 60)) - (tree[0] == b) * 0.5
+        trunk = random.choice(range(119, 134)), random.choice(range(68, 85)), random.choice(range(68, 85))
+        leaves = random.choice(range(34, 68)), random.choice(range(85, 153)), random.choice(range(68, 85))
+        mushroom1 = random.choice(range(204, 255)), random.choice(range(187, 204)), random.choice(range(134, 187))
+        mushroom2 = random.choice(range(187, 221)), random.choice(range(119, 153)), random.choice(range(85, 102))
+        mushroom3 = random.choice(range(187, 204)), random.choice(range(51, 68)), random.choice(range(51, 68))
+        colors = (trunk, leaves, mushroom1, mushroom2, mushroom3)
+        for z in range(1, len(tree)):
+            for y in range(0, 64):
+                for x in range(0, 64):
+                    d, clr = tree[z]
+                    if ((x-x1)**2+(y-y1)**2)**0.5 <= tree[0][d]:
+                        sx, sy = coordinates(sector)
+                        queue(con, sx+x, sy+y, 62-z, add_dither(colors[clr], int(dither)))
+    con.build_queue_start()
+
 @command()
 def undo(con, steps=1):
     """
@@ -607,6 +797,7 @@ def apply_script(protocol, connection, config):
             self.sel_shape = 'cuboid'
             self.build_queue_loop = None
             self.build_queue = []
+            self.build_queue_len = None
             self.undo = []
             self.redo = []
             self.deferred = None
@@ -619,11 +810,11 @@ def apply_script(protocol, connection, config):
             if state == True:
                 if self.brush:
                     if not self.build_queue:
-                        coords = self.world_object.cast_ray(160)
+                        coords = self.world_object.cast_ray(64)
                         if coords:
                             brush_build(self, *list(coords), 'build')
                 if self.selection:
-                    coords = self.world_object.cast_ray(160)
+                    coords = self.world_object.cast_ray(64)
                     if coords:
                         if self.sel_a:
                             self.sel_b = list(coords)
@@ -639,7 +830,7 @@ def apply_script(protocol, connection, config):
 
         def on_secondary_fire_set(self, state):
             if state == True:
-                coords = self.world_object.cast_ray(160)
+                coords = self.world_object.cast_ray(64)
                 if coords:
                     if self.brush:
                         brush_build(self, *list(coords), 'destroy')
@@ -649,6 +840,8 @@ def apply_script(protocol, connection, config):
             connection.on_secondary_fire_set(self, state)
 
         def build_queue_start(self):
+            self.build_queue_len = len(self.build_queue)
+            self.build_queue = sorted(self.build_queue, key=lambda x: (x[3] is not None, x[3])) # blocks queued for removal should be processed first
             self.build_queue = iter(self.build_queue)
             self.build_queue_loop = LoopingCall(self.build_queue_batch)
             self.build_queue_loop.start(0.01)
@@ -661,10 +854,12 @@ def apply_script(protocol, connection, config):
                         if build(self, *block) == False:
                             self.build_queue_loop.stop()
                             self.build_queue = []
+                            self.send_chat('%s block(s) have been changed' % self.build_queue_len)
                             break
                 except StopIteration:
                     self.build_queue_loop.stop()
                     self.build_queue = []
+                    self.send_chat('%s block(s) have been changed' % self.build_queue_len)
                     break
 
     return protocol, CTConnection
