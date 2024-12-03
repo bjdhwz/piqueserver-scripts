@@ -281,6 +281,9 @@ def get_multiblock_diff(self, regblock, xyz_new):
 def rollout_multiblocks(self, coord, destroy=False):
     delay = 0
     first = True
+    last_clr = self.regblocks[-1][-1]
+    if last_clr != self.color:
+        self.regblocks = [(x, y, z, dir, self.color) if clr == last_clr else (x, y, z, dir, clr) for x, y, z, dir, clr in self.regblocks]
     for regblock in reversed(self.regblocks):
         if first:
             first = False

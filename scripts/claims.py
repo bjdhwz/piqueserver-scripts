@@ -80,7 +80,7 @@ def claim(connection, sector):
     if owner == True:
         return "Sector %s is already claimed by you" % sector
     elif owner:
-        return "Sector %s is already claimed. You can claim one of the /free sectors" % (sector, owner)
+        return "Sector %s is already claimed. You can claim one of the /free sectors" % sector
     elif owner == None:
         return "Sector %s is reserved and can't be claimed. You can claim one of the /free sectors" % sector
     else:

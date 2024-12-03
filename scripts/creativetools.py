@@ -61,10 +61,12 @@ def build(con, x, y, z, color=None):
     if color:
         color = [255 if value > 255 else value for value in color]
         color = tuple([0 if value < 0 else value for value in color])
-        set_color = SetColor()
-        set_color.player_id = 32
-        set_color.value = make_color(*color)
-        con.protocol.broadcast_contained(set_color)
+        if color != con.build_queue_color:
+            con.build_queue_color = color
+            set_color = SetColor()
+            set_color.player_id = 32
+            set_color.value = make_color(*color)
+            con.protocol.broadcast_contained(set_color)
         block_action.value = BUILD_BLOCK
         con.protocol.map.set_point(x, y, z, color)
     else:
@@ -145,17 +147,29 @@ def add_dither(color, dither):
     return tuple([min(max(int(value) + dither, 0), 255) for value in color])
 
 @command('s', 'sel')
-def sel(con, shape='cuboid'):
+def sel(con, shape=None):
     """
     Select area
     /sel <selection shape: cuboid/[e]llipsoid/[c]ylinder>
     """
-    if shape in ('e', 'ellipsoid'):
+    if shape == None:
+        if not con.sel_a:
+            con.sel_shape = 'cuboid'
+    elif shape in ('e', 'ellipsoid'):
         con.sel_shape = 'ellipsoid'
+        con.send_chat('Selection shape changed')
+        if con.sel_a:
+            return
     elif shape in ('c', 'cyl', 'cylinder'):
         con.sel_shape = 'cylinder'
+        con.send_chat('Selection shape changed')
+        if con.sel_a:
+            return
     else:
         con.sel_shape = 'cuboid'
+        con.send_chat('Selection shape changed')
+        if con.sel_a:
+            return
 
     if con.selection:
         con.selection = False
@@ -166,7 +180,7 @@ def sel(con, shape='cuboid'):
         con.selection = True
         con.sel_a = None
         con.sel_b = None
-        return 'Selection started. Select two points by clicking on corner blocks'
+        return 'Selection started. Select two points by clicking on or placing corner blocks'
 
 @command()
 def unsel(con):
@@ -627,6 +641,7 @@ def brush(con, radius=None, mode='set', *colors):
             return 'Brush size changed'
         else:
             con.brush = False
+            con.sel_shape = 'cuboid'
             return 'Brush disabled'
     else:
         if radius:
@@ -641,15 +656,15 @@ def brush_build(con, x, y, z, action):
 
     if action == 'build':
         if con.brush_mode == 'set':
-            replace(con, c_set, 'any', con.brush_colors)
+            replace(con, 'any', con.brush_colors)
         elif con.brush_mode == 'replace':
-            replace(con, c_replace, con.color, con.brush_colors)
+            replace(con, con.color, con.brush_colors)
         elif con.brush_mode == 'fill':
-            replace(con, fill, None, con.brush_colors)
+            replace(con, None, con.brush_colors)
         elif con.brush_mode == 'repaint':
-            replace(con, repaint, 'solid', con.brush_colors)
+            replace(con, 'solid', con.brush_colors)
     elif action == 'destroy':
-        replace(con, c_set, 'any', ('remove',))
+        replace(con, 'any', ('remove',))
 
 @command()
 def center(con):
@@ -798,6 +813,7 @@ def apply_script(protocol, connection, config):
             self.build_queue_loop = None
             self.build_queue = []
             self.build_queue_len = None
+            self.build_queue_color = (0, 0, 0)
             self.undo = []
             self.redo = []
             self.deferred = None
@@ -814,7 +830,7 @@ def apply_script(protocol, connection, config):
                         if coords:
                             brush_build(self, *list(coords), 'build')
                 if self.selection:
-                    coords = self.world_object.cast_ray(64)
+                    coords = self.world_object.cast_ray(32)
                     if coords:
                         if self.sel_a:
                             self.sel_b = list(coords)
@@ -830,14 +846,48 @@ def apply_script(protocol, connection, config):
 
         def on_secondary_fire_set(self, state):
             if state == True:
-                coords = self.world_object.cast_ray(64)
-                if coords:
-                    if self.brush:
+                if self.brush:
+                    coords = self.world_object.cast_ray(64)
+                    if coords:
                         brush_build(self, *list(coords), 'destroy')
-                    if self.selection:
+                if self.selection:
+                    coords = self.world_object.cast_ray(32)
+                    if coords:
                         self.sel_a = list(coords)
                         self.send_chat('First corner has been redefined')
             connection.on_secondary_fire_set(self, state)
+
+        def on_block_destroy(self, x, y, z, value):
+            if self.selection:
+                if self.sel_a:
+                    self.sel_b = [x, y, z]
+                    self.send_chat('Selection created')
+                    if self.deferred:
+                        func, args = self.deferred
+                        func(self, *args)
+                        self.deferred = None
+                else:
+                    self.sel_a = [x, y, z]
+                    self.send_chat('First corner has been selected')
+                return False
+            if connection.on_block_destroy(self, x, y, z, value) == False:
+                return False
+
+        def on_block_build_attempt(self, x, y, z):
+            if self.selection:
+                if self.sel_a:
+                    self.sel_b = [x, y, z]
+                    self.send_chat('Selection created')
+                    if self.deferred:
+                        func, args = self.deferred
+                        func(self, *args)
+                        self.deferred = None
+                else:
+                    self.sel_a = [x, y, z]
+                    self.send_chat('First corner has been selected')
+                return False
+            if connection.on_block_build_attempt(self, x, y, z) == False:
+                return False
 
         def build_queue_start(self):
             self.build_queue_len = len(self.build_queue)
@@ -854,12 +904,14 @@ def apply_script(protocol, connection, config):
                         if build(self, *block) == False:
                             self.build_queue_loop.stop()
                             self.build_queue = []
-                            self.send_chat('%s block(s) have been changed' % self.build_queue_len)
+                            if not self.brush:
+                                self.send_chat('%s block(s) have been changed' % self.build_queue_len)
                             break
                 except StopIteration:
                     self.build_queue_loop.stop()
                     self.build_queue = []
-                    self.send_chat('%s block(s) have been changed' % self.build_queue_len)
+                    if not self.brush:
+                        self.send_chat('%s block(s) have been changed' % self.build_queue_len)
                     break
 
     return protocol, CTConnection
