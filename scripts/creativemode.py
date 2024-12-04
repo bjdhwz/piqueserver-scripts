@@ -19,6 +19,8 @@ from piqueserver.commands import command, target_player
 from piqueserver.config import config
 from pyspades import contained as loaders
 from pyspades.common import coordinates
+from pyspades.constants import BLOCK_TOOL, BUILD_BLOCK, DESTROY_BLOCK
+from pyspades.contained import BlockAction, SetColor
 from twisted.internet.task import LoopingCall
 
 HIDE_POS = (-256, -256, 63)
@@ -330,6 +332,50 @@ def apply_script(protocol, connection, config):
             except:
                 pass
             return connection.on_disconnect(self)
+
+        def on_secondary_fire_set(self, state):
+            if state == True:
+                x, y, z = self.get_location()
+                if not self.protocol.map.get_solid(x, y, z+3) and not self.protocol.map.get_solid(x, y, z+4) and not self.world_object.sneak:
+                    if self.temp_block:
+                        block_action = BlockAction()
+                        block_action.player_id = 34
+                        xt, yt, zt = self.temp_block
+                        block_action.x = xt
+                        block_action.y = yt
+                        block_action.z = zt
+                        block_action.value = DESTROY_BLOCK
+                        self.send_contained(block_action)
+                    self.temp_block = (x, y, z+4)
+                    block_action = BlockAction()
+                    block_action.player_id = 34
+                    block_action.x = x
+                    block_action.y = y
+                    block_action.z = z+4
+                    set_color = SetColor()
+                    set_color.player_id = 34
+                    set_color.value = make_color(255, 255, 255)
+                    self.protocol.broadcast_contained(set_color)
+                    block_action.value = BUILD_BLOCK
+                    self.send_contained(block_action)
+                if self.tool == BLOCK_TOOL and self.world_object.sneak:
+                    ori = self.world_object.orientation
+                    x += round(ori.x * 2)
+                    y += round(ori.y * 2)
+                    z += round(ori.z * 2)
+                    if connection.on_block_build_attempt(self, x, y, z) == False:
+                        return
+                    if not self.protocol.map.get_solid(x, y, z):
+                        block_action = BlockAction()
+                        block_action.player_id = self.player_id
+                        block_action.x = x
+                        block_action.y = y
+                        block_action.z = z
+                        block_action.value = BUILD_BLOCK
+                        self.protocol.map.set_point(x, y, z, self.color)
+                        self.protocol.broadcast_contained(block_action, save=True)
+                        connection.on_block_build(self, int(x), int(y), int(z))
+            connection.on_secondary_fire_set(self, state)
 
     class NoCaptureProtocol(protocol):
 
