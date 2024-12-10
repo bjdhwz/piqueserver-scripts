@@ -15,6 +15,7 @@ S_NOT_ALIVE = "{player} is waiting to respawn"
 S_LIGHTNING = "{player} was struck by angry lightning!!!"
 S_LIGHTNING_SELF = "You were struck down by angry lightning!!!"
 S_LIGHTNING_IRC = "* {admin} called down lightning on {player}"
+S_LIGHTNING_ADMIN = "{player} attempted to strike {target} with lightning, but missed."
 
 FOG_INTERVAL = 0.05
 
@@ -23,11 +24,11 @@ def wrap_if_necessary(func_or_value):
     except: return lambda: func_or_value
     else: return func_or_value
 
-@command()
+@command(admin_only=True)
 def lightning(connection, player = None):
     # And I will strike down upon thee with great vengeance and furious anger
     # those who would attempt to poison and destroy My brothers
-    
+
     protocol = connection.protocol
     if player:
         player = get_player(protocol, player)
@@ -36,13 +37,22 @@ def lightning(connection, player = None):
             return S_SPECTATING.format(player = player.name)
         if player.hp < 0:
             return S_NOT_ALIVE.format(player = player.name)
-        
-        callLater(0.1, player.kill)
-        callLater(0.1, create_explosion_effect_at_player, player)
-        
-        message = S_LIGHTNING.format(player = player.name)
-        protocol.send_chat(message, sender = player)
-        player.send_chat(S_LIGHTNING_SELF)
+
+        if player.admin:
+            callLater(0.1, connection.kill)
+            callLater(0.1, create_explosion_effect_at_player, connection)
+
+            message = S_LIGHTNING_ADMIN.format(player = connection.name, target = player.name)
+            protocol.broadcast_chat(message)
+
+        else:
+            callLater(0.1, player.kill)
+            callLater(0.1, create_explosion_effect_at_player, player)
+
+            message = S_LIGHTNING.format(player = player.name)
+            protocol.broadcast_chat(message, sender = player)
+            player.broadcast_chat(S_LIGHTNING_SELF)
+
         if connection in protocol.players:
             message = S_LIGHTNING_IRC.format(admin = connection.name,
                 player = player.name)
@@ -73,7 +83,7 @@ def fade(connection, r, g, b, time = None):
 
 from pyspades.common import Vertex3
 from pyspades.world import Grenade
-renade_packet = loaders.GrenadePacket()
+grenade_packet = loaders.GrenadePacket()
 
 def create_explosion_effect_at_player(player):
     obj = player.world_object
@@ -86,7 +96,7 @@ def create_explosion_effect_at_player(player):
     grenade_packet.player_id = 32
     grenade_packet.position = grenade.position.get()
     grenade_packet.velocity = grenade.velocity.get()
-    protocol.send_contained(grenade_packet)
+    protocol.broadcast_contained(grenade_packet)
 
 class FogEffect:
     def start(self):
@@ -105,7 +115,7 @@ class FogEffect:
         sender = sender or self.protocol
         color = self.get_color()
         fog_color.color = make_color(*color)
-        sender.send_contained(fog_color, save = True)
+        sender.broadcast_contained(fog_color, save = True)
 
 class FogHold(FogEffect):
     def __init__(self, duration, color):

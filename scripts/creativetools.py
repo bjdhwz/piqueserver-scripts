@@ -54,7 +54,7 @@ def build(con, x, y, z, color=None):
     if con.on_block_build_attempt(x, y, z) == False:
         return False
     block_action = BlockAction()
-    block_action.player_id = 32
+    block_action.player_id = 33
     block_action.x = x
     block_action.y = y
     block_action.z = z
@@ -64,7 +64,7 @@ def build(con, x, y, z, color=None):
         if color != con.build_queue_color:
             con.build_queue_color = color
             set_color = SetColor()
-            set_color.player_id = 32
+            set_color.player_id = 33
             set_color.value = make_color(*color)
             con.protocol.broadcast_contained(set_color)
         block_action.value = BUILD_BLOCK
@@ -78,6 +78,7 @@ def queue(con, x, y, z, color=False, save_history=True):
     if ((x in range(512)) and (y in range(512)) and (z in range(64))):
         if save_history:
             con.undo[-1][1] += [(x, y, z, con.protocol.world.map.get_color(x, y, z))]
+
         if color != False:
             con.build_queue += [(x, y, z, color)]
         else:
@@ -813,7 +814,7 @@ def apply_script(protocol, connection, config):
             self.build_queue_loop = None
             self.build_queue = []
             self.build_queue_len = None
-            self.build_queue_color = (0, 0, 0)
+            self.build_queue_color = None
             self.undo = []
             self.redo = []
             self.deferred = None
@@ -891,7 +892,7 @@ def apply_script(protocol, connection, config):
 
         def build_queue_start(self):
             self.build_queue_len = len(self.build_queue)
-            self.build_queue = sorted(self.build_queue, key=lambda x: (x[3] is not None, x[3])) # blocks queued for removal should be processed first
+##            self.build_queue = sorted(self.build_queue, key=lambda x: (x[3] is not None, x[3])) # blocks queued for removal should be processed first
             self.build_queue = iter(self.build_queue)
             self.build_queue_loop = LoopingCall(self.build_queue_batch)
             self.build_queue_loop.start(0.01)

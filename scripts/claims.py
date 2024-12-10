@@ -25,10 +25,6 @@ cur = con.cursor()
 cur.execute('CREATE TABLE IF NOT EXISTS claims(sector, owner COLLATE NOCASE, dt, name, mode, fog)')
 cur.execute('CREATE TABLE IF NOT EXISTS shared(sector, player COLLATE NOCASE, dt)')
 cur.execute('CREATE TABLE IF NOT EXISTS signs(x, y, z, text)')
-try:
-    cur.execute('ALTER TABLE claims ADD fog')
-except:
-    pass
 con.commit()
 cur.close()
 
@@ -198,27 +194,56 @@ def sign(connection, *text):
             return "Block is no longer signed"
     return "You can only sign blocks within your claim"
 
-@command()
-def claimed(connection, player=None):
+@command('claimed', 'owned', 'shared')
+def owned(connection, player=None):
     """
-    List claimed sectors
-    /claimed <player>
+    List owned sectors
+    /owned <player>
     """
     cur = con.cursor()
     if player:
-        claimed_sectors = [x[0] + (' <' + x[1] + '>') for x in cur.execute('SELECT sector, owner FROM claims WHERE owner = ?', (player,)).fetchall()]
-        if not claimed_sectors:
-            return 'No sectors claimed by this player'
+        shared_sectors = cur.execute('SELECT sector FROM shared WHERE player = ?', (connection.name,)).fetchall()
+        if shared_sectors:
+            connection.send_chat("Shared: " + ', '.join([x[0] for x in shared_sectors]))
+        else:
+            connection.send_chat('Shared: none')
+        claimed_sectors = cur.execute('SELECT sector FROM claims WHERE owner = ?', (connection.name,)).fetchall()
+        if claimed_sectors:
+            connection.send_chat("Claimed: " + ', '.join([x[0] for x in claimed_sectors]))
+        else:
+            connection.send_chat('Claimed: none')
     else:
         claimed_sectors = [x[0] + (' <' + x[1] + '>' if x[1] else ' [reserved]') for x in cur.execute('SELECT sector, owner FROM claims').fetchall()]
+        if claimed_sectors:
+            connection.send_chat(', '.join(claimed_sectors))
+        else:
+            connection.send_chat('No claimed sectors')
     cur.close()
-    return ', '.join(claimed_sectors)
+
+@command()
+def my(connection):
+    """
+    List sectors you claim or which were shared with you
+    /my
+    """
+    cur = con.cursor()
+    shared_sectors = cur.execute('SELECT sector FROM shared WHERE player = ?', (connection.name,)).fetchall()
+    if shared_sectors:
+        connection.send_chat("Shared: " + ', '.join([x[0] for x in shared_sectors]))
+    else:
+        connection.send_chat('Shared: none')
+    claimed_sectors = cur.execute('SELECT sector FROM claims WHERE owner = ?', (connection.name,)).fetchall()
+    if claimed_sectors:
+        connection.send_chat("Claimed: " + ', '.join([x[0] for x in claimed_sectors]))
+    else:
+        connection.send_chat('Claimed: none')
+    cur.close()
 
 @command('unclaimed', 'free')
 def unclaimed(connection):
     """
     List unclaimed and public sectors
-    /unclaimed
+    /free
     """
     cur = con.cursor()
     claimed_sectors = [x[0] for x in cur.execute('SELECT sector FROM claims').fetchall()]
@@ -230,7 +255,7 @@ def unclaimed(connection):
     else:
         connection.send_chat("Unclaimed: currently none :(")
     if public_sectors:
-        connection.send_chat("Build only: " + ', '.join(public_sectors))
+        connection.send_chat("Free build: " + ', '.join(public_sectors))
 
 @command()
 def unclaim(connection, sector):
@@ -359,26 +384,25 @@ def public(connection, sector):
         return "Invalid sector. Example of a sector: A1"
 
     owner = claimed_by(sector, connection.name)
-    if not connection.admin:
-        if owner != True:
-            return "You can only manage sectors you claim. Claim a sector using /claim first"
+    if owner == False:
+        return "You can only set mode to a claimed sector. Claim a sector using /claim first"
+    if owner != True and not connection.admin:
+        return "You can only manage sectors you claim. Claim a sector using /claim first"
 
-    owner = claimed_by(sector, connection.name)
-    if owner == True or connection.admin:
-        cur = con.cursor()
-        mode = cur.execute('SELECT mode FROM claims WHERE sector = ?', (sector, )).fetchone()
-        if mode:
-            if mode[0] == 'public':
-                cur.execute('UPDATE claims SET mode = ? WHERE sector = ?', (None, sector))
-                con.commit()
-                cur.close()
-                connection.protocol.notify_admins("%s made %s private" % (connection.name, sector))
-                return "Sector %s is no longer public" % sector
-        cur.execute('UPDATE claims SET mode = ? WHERE sector = ?', ('public', sector))
-        con.commit()
-        cur.close()
-        connection.protocol.notify_admins("%s made %s public" % (connection.name, sector))
-        return "Sector %s is now public" % sector
+    cur = con.cursor()
+    mode = cur.execute('SELECT mode FROM claims WHERE sector = ?', (sector, )).fetchone()
+    if mode:
+        if mode[0] == 'public':
+            cur.execute('UPDATE claims SET mode = ? WHERE sector = ?', (None, sector))
+            con.commit()
+            cur.close()
+            connection.protocol.notify_admins("%s made %s private" % (connection.name, sector))
+            return "Sector %s is no longer public" % sector
+    cur.execute('UPDATE claims SET mode = ? WHERE sector = ?', ('public', sector))
+    con.commit()
+    cur.close()
+    connection.protocol.notify_admins("%s made %s public" % (connection.name, sector))
+    return "Sector %s is now public" % sector
     return "You can only manage sectors you claim. Claim a sector using /claim first"
 
 @command()
@@ -395,27 +419,25 @@ def quest(connection, sector):
         return "Invalid sector. Example of a sector: A1"
 
     owner = claimed_by(sector, connection.name)
-    if not connection.admin:
-        if owner != True:
-            return "You can only manage sectors you claim. Claim a sector using /claim first"
+    if owner == False:
+        return "You can only set mode to a claimed sector. Claim a sector using /claim first"
+    if owner != True and not connection.admin:
+        return "You can only manage sectors you claim. Claim a sector using /claim first"
 
-    owner = claimed_by(sector, connection.name)
-    if owner == True or connection.admin:
-        cur = con.cursor()
-        mode = cur.execute('SELECT mode FROM claims WHERE sector = ?', (sector, )).fetchone()
-        if mode:
-            if mode[0] == 'quest':
-                cur.execute('UPDATE claims SET mode = ? WHERE sector = ?', (None, sector))
-                con.commit()
-                cur.close()
-                connection.protocol.notify_admins("%s unset %s from quest mode" % (connection.name, sector))
-                return "Sector %s is no longer in quest mode" % sector
-        cur.execute('UPDATE claims SET mode = ? WHERE sector = ?', ('quest', sector))
-        con.commit()
-        cur.close()
-        connection.protocol.notify_admins("%s set %s into quest mode" % (connection.name, sector))
-        return "Sector %s is now in quest mode" % sector
-    return "You can only manage sectors you claim. Claim a sector using /claim first"
+    cur = con.cursor()
+    mode = cur.execute('SELECT mode FROM claims WHERE sector = ?', (sector, )).fetchone()
+    if mode:
+        if mode[0] == 'quest':
+            cur.execute('UPDATE claims SET mode = ? WHERE sector = ?', (None, sector))
+            con.commit()
+            cur.close()
+            connection.protocol.notify_admins("%s unset %s from quest mode" % (connection.name, sector))
+            return "Sector %s is no longer in quest mode" % sector
+    cur.execute('UPDATE claims SET mode = ? WHERE sector = ?', ('quest', sector))
+    con.commit()
+    cur.close()
+    connection.protocol.notify_admins("%s set %s into quest mode" % (connection.name, sector))
+    return "Sector %s is now in quest mode" % sector
 
 @command(admin_only=True)
 def reserve(connection, sector):
@@ -540,6 +562,7 @@ def apply_script(protocol, connection, config):
                     res = cur.execute('SELECT name, mode, fog FROM claims WHERE sector = ?', (get_sector(x, y),)).fetchone()
                     cur.close()
                     fog = tuple(self.fog_color)
+                    player.quest_mode = False
                     if res:
                         name, mode, fog_db = res
                         if fog_db:
@@ -548,8 +571,6 @@ def apply_script(protocol, connection, config):
                             player.send_cmsg("Welcome to %s" % name, 'Status')
                         if mode == 'quest':
                             player.quest_mode = True
-                        else:
-                            player.quest_mode = False
                     player.sector_fog_transition(fog)
                     player.current_sector = get_sector(x, y)
                 block = player.world_object.cast_ray(32)

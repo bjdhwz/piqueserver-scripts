@@ -337,29 +337,6 @@ def apply_script(protocol, connection, config):
         def on_secondary_fire_set(self, state):
             if state == True:
                 x, y, z = self.get_location()
-                if int(x) in range(512) and int(y) in range(512) and int(z)+4 in range(64):
-                    if not self.protocol.map.get_solid(x, y, z+3) and not self.protocol.map.get_solid(x, y, z+4) and not self.world_object.sneak and self.tool != WEAPON_TOOL:
-                        if self.temp_block:
-                            block_action = BlockAction()
-                            block_action.player_id = 34
-                            xt, yt, zt = self.temp_block
-                            block_action.x = xt
-                            block_action.y = yt
-                            block_action.z = zt
-                            block_action.value = DESTROY_BLOCK
-                            self.send_contained(block_action)
-                        self.temp_block = (x, y, z+4)
-                        block_action = BlockAction()
-                        block_action.player_id = 34
-                        block_action.x = x
-                        block_action.y = y
-                        block_action.z = z+4
-                        set_color = SetColor()
-                        set_color.player_id = 34
-                        set_color.value = make_color(255, 255, 255)
-                        self.protocol.broadcast_contained(set_color)
-                        block_action.value = BUILD_BLOCK
-                        self.send_contained(block_action)
                 if self.tool == BLOCK_TOOL and self.world_object.sneak:
                     ori = self.world_object.orientation
                     x += round(ori.x * 2)
@@ -378,6 +355,46 @@ def apply_script(protocol, connection, config):
                             self.protocol.map.set_point(x, y, z, self.color)
                             self.protocol.broadcast_contained(block_action, save=True)
                             connection.on_block_build(self, int(x), int(y), int(z))
+                z += 4 - int(self.world_object.crouch)
+                if int(x) in range(512) and int(y) in range(512) and int(z) in range(64):
+                    if self.temp_block:
+                        xt, yt, zt = self.temp_block
+                        if int(x) != int(xt) or int(y) != int(yt) or int(z) < int(zt):
+                            block_action = BlockAction()
+                            block_action.player_id = 34
+                            block_action.x = xt
+                            block_action.y = yt
+                            block_action.z = zt
+                            block_action.value = DESTROY_BLOCK
+                            self.send_contained(block_action)
+                            self.temp_block = None
+                            if z < 53 and not self.protocol.map.get_solid(x, y, z-1) and not self.protocol.map.get_solid(x, y, z) and not self.world_object.sneak and not self.tool == WEAPON_TOOL:
+                                self.temp_block = (x, y, z)
+                                block_action = BlockAction()
+                                block_action.player_id = 34
+                                block_action.x = x
+                                block_action.y = y
+                                block_action.z = z
+                                set_color = SetColor()
+                                set_color.player_id = 34
+                                set_color.value = make_color(255, 255, 255)
+                                self.protocol.broadcast_contained(set_color)
+                                block_action.value = BUILD_BLOCK
+                                self.send_contained(block_action)
+                    else:
+                        if z < 53 and not self.protocol.map.get_solid(x, y, z-1) and not self.protocol.map.get_solid(x, y, z) and not self.world_object.sneak and not self.tool == WEAPON_TOOL:
+                            self.temp_block = (x, y, z)
+                            block_action = BlockAction()
+                            block_action.player_id = 34
+                            block_action.x = x
+                            block_action.y = y
+                            block_action.z = z
+                            set_color = SetColor()
+                            set_color.player_id = 34
+                            set_color.value = make_color(255, 255, 255)
+                            self.protocol.broadcast_contained(set_color)
+                            block_action.value = BUILD_BLOCK
+                            self.send_contained(block_action)
             connection.on_secondary_fire_set(self, state)
 
     class NoCaptureProtocol(protocol):
