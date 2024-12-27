@@ -4,13 +4,13 @@ Lets registered players claim 64x64 sectors of the map and share them with other
 Requires auth.py
 
 May conflict with building scripts (building scripts either don't work, or blocks in claimed sectors become breakable by anyone)
-If that happens, try to change script loading order in config.
+paint.py, sculpt.py and other scripts in this repo are edited for compatibility.
 
 .. codeauthor:: Liza
 """
 
 from datetime import datetime
-import os, sqlite3
+import os, random, sqlite3
 from twisted.internet.task import LoopingCall
 from piqueserver.commands import command, get_player
 from piqueserver.config import config
@@ -195,19 +195,19 @@ def sign(connection, *text):
     return "You can only sign blocks within your claim"
 
 @command('claimed', 'owned', 'shared')
-def owned(connection, player=None):
+def owned(connection, player):
     """
     List owned sectors
     /owned <player>
     """
     cur = con.cursor()
     if player:
-        shared_sectors = cur.execute('SELECT sector FROM shared WHERE player = ?', (connection.name,)).fetchall()
+        shared_sectors = cur.execute('SELECT sector FROM shared WHERE player = ?', (player,)).fetchall()
         if shared_sectors:
             connection.send_chat("Shared: " + ', '.join([x[0] for x in shared_sectors]))
         else:
             connection.send_chat('Shared: none')
-        claimed_sectors = cur.execute('SELECT sector FROM claims WHERE owner = ?', (connection.name,)).fetchall()
+        claimed_sectors = cur.execute('SELECT sector FROM claims WHERE owner = ?', (player,)).fetchall()
         if claimed_sectors:
             connection.send_chat("Claimed: " + ', '.join([x[0] for x in claimed_sectors]))
         else:
@@ -240,7 +240,7 @@ def my(connection):
     cur.close()
 
 @command('unclaimed', 'free')
-def unclaimed(connection):
+def unclaimed(connection, *args):
     """
     List unclaimed and public sectors
     /free
@@ -734,5 +734,36 @@ def apply_script(protocol, connection, config):
             self.protocol.sector_names_loop = LoopingCall(self.protocol.display_notifications)
             self.protocol.sector_names_loop.start(self.protocol.sector_names_interval)
             return connection.on_spawn(self, pos)
+
+        def get_spawn_location(self):
+            try:
+                cur = con.cursor()
+                my_sectors = [x[0] for x in cur.execute('SELECT sector FROM claims WHERE owner = ?', (self.name,)).fetchall()]
+                if my_sectors:
+                    spawn_sector = random.choice(my_sectors)
+                else:
+                    shared_sectors = [x[0] for x in cur.execute('SELECT sector FROM shared WHERE player = ?', (self.name,)).fetchall()]
+                    if shared_sectors:
+                        spawn_sector = random.choice(shared_sectors)
+                    else:
+                        claimed_sectors = [x[0] for x in cur.execute('SELECT sector FROM claims').fetchall()]
+                        unclaimed_sectors = [x for x in ALL_SECTORS if x not in claimed_sectors]
+                        if unclaimed_sectors:
+                            spawn_sector = random.choice(unclaimed_sectors)
+                        else:
+                            public_sectors = [x[0] for x in cur.execute('SELECT sector FROM claims WHERE mode = "public"').fetchall()]
+                            if public_sectors:
+                                spawn_sector = random.choice(public_sectors)
+                            else:
+                                spawn_sector = random.choice(ALL_SECTORS)
+                cur.close()
+            except:
+                spawn_sector = random.choice(ALL_SECTORS)
+
+            sx, sy = coordinates(spawn_sector)
+            sx += random.choice(range(64))
+            sy += random.choice(range(64))
+            sz = self.protocol.map.get_z(sx, sy)
+            return (sx, sy, sz)
 
     return ClaimsProtocol, ClaimsConnection

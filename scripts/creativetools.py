@@ -705,7 +705,7 @@ def randomrepeat(con, colors='2%#444,2%#555,2%#343,2%#554,2%#565,2%#455,2%#465,#
     """
     if selection(con, randomrepeat, (colors, ratio_empty, randomness, dither)):
         return
-##    add_undo_step(con)
+    add_undo_step(con)
     weights = [int(x.split('%')[0]) if '%' in x else 1 for x in colors.split(',')]
     weights += [round(sum(weights) * float(ratio_empty))]
     colors = [get_rgb(x.split('%')[1]) if '%' in x else get_rgb(x) for x in colors.split(',')]

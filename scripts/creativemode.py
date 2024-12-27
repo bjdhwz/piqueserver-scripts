@@ -226,6 +226,14 @@ def autofly(connection):
     with open(os.path.join(config.config_dir, 'no_fly_list.txt'), 'w') as f:
         f.write('\n'.join(NOAUTOFLY))
 
+@command('togglegrenadedamage', 'tgd', admin_only=True)
+def toggle_grenade_damage(connection):
+    connection.disable_grenade_damage = not connection.disable_grenade_damage
+    if connection.disable_grenade_damage:
+        return 'Grenade damage has been disabled'
+    else:
+        return 'Grenade damage has been enabled'
+
 
 def apply_script(protocol, connection, config):
     class NoCaptureConnection(connection):
@@ -240,6 +248,7 @@ def apply_script(protocol, connection, config):
             self.gt_loop = None
             self.quest_mode = False
             self.temp_block = None
+            self.disable_grenade_damage = True
 
         def update_pingmon(self):
             blocks = '▁▂▃▄▅▆▇█'
@@ -289,8 +298,9 @@ def apply_script(protocol, connection, config):
                 self.fly = False
 
         def on_block_destroy(self, x, y, z, value):
-            if value == 3: # disables grenade damage
-                return False
+            if self.disable_grenade_damage:
+                if value == 3:
+                    return False
             if connection.on_block_destroy(self, x, y, z, value) == False:
                 return False
 

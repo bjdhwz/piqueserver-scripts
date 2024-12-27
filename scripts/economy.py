@@ -113,6 +113,8 @@ def transactions(connection, player=None):
     """
     if not connection.logged_in:
         return "Please log in using /login first"
+    if not player:
+        player = connection.name
     if player.lower() != connection.name.lower():
         if not connection.admin:
             return "Can't show transactions of other players"
@@ -123,7 +125,7 @@ def transactions(connection, player=None):
     cur.close()
     if records:
         if connection.admin:
-            return '\n'.join(' '.join(records))
+            return '\n'.join([' '.join(str(y) for y in x) for x in records])
         else:
             return '\n'.join(["%s %s %s %s %s %s %s" % (x[0], x[1], x[2], x[5], x[6], x[7], x[8]) for x in records])
     else:
@@ -139,7 +141,7 @@ def alltransactions(connection):
     records = cur.execute('SELECT id, dt, sender, sender_ip, sender_session, receiver, amount, comment, cancelled FROM transactions ORDER BY id DESC LIMIT 5').fetchall()
     cur.close()
     if records:
-        return '\n'.join(' '.join(records))
+        return '\n'.join([' '.join(str(y) for y in x) for x in records])
     else:
         return "No transactions yet"
 
