@@ -228,11 +228,11 @@ def autofly(connection):
 
 @command('togglegrenadedamage', 'tgd', admin_only=True)
 def toggle_grenade_damage(connection):
-    connection.disable_grenade_damage = not connection.disable_grenade_damage
-    if connection.disable_grenade_damage:
-        return 'Grenade damage has been disabled'
+    connection.protocol.disable_grenade_damage = not connection.protocol.disable_grenade_damage
+    if connection.protocol.disable_grenade_damage:
+        connection.protocol.notify_admins('Grenade damage has been disabled')
     else:
-        return 'Grenade damage has been enabled'
+        connection.protocol.notify_admins('Grenade damage has been enabled')
 
 
 def apply_script(protocol, connection, config):
@@ -248,7 +248,6 @@ def apply_script(protocol, connection, config):
             self.gt_loop = None
             self.quest_mode = False
             self.temp_block = None
-            self.disable_grenade_damage = True
 
         def update_pingmon(self):
             blocks = '▁▂▃▄▅▆▇█'
@@ -298,7 +297,7 @@ def apply_script(protocol, connection, config):
                 self.fly = False
 
         def on_block_destroy(self, x, y, z, value):
-            if self.disable_grenade_damage:
+            if self.protocol.disable_grenade_damage:
                 if value == 3:
                     return False
             if connection.on_block_destroy(self, x, y, z, value) == False:
@@ -408,6 +407,8 @@ def apply_script(protocol, connection, config):
             connection.on_secondary_fire_set(self, state)
 
     class NoCaptureProtocol(protocol):
+
+        disable_grenade_damage = True
 
         def on_base_spawn(self, x, y, z, base, entity_id):
             return HIDE_POS

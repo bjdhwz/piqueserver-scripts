@@ -28,7 +28,7 @@ cur.execute('CREATE TABLE IF NOT EXISTS signs(x, y, z, text)')
 con.commit()
 cur.close()
 
-SECTORS_PER_PLAYER = 9
+SECTORS_PER_PLAYER = 5
 
 cur = con.cursor()
 SIGNS = cur.execute('SELECT x, y, z FROM signs').fetchall()
@@ -195,7 +195,7 @@ def sign(connection, *text):
     return "You can only sign blocks within your claim"
 
 @command('claimed', 'owned', 'shared')
-def owned(connection, player):
+def owned(connection, player=None):
     """
     List owned sectors
     /owned <player>

@@ -87,7 +87,7 @@ def loadvox(con, fn=None, dither=0, rotate='', shift=1, pattern='', px=None, py=
                         z1 = int(pz)-z+2
                         if (x1 in range(512)) and (y1 in range(512)) and (z1 in range(64)):
                             if pattern:
-                                rgbshift = pattern[(x1+z1%2)//2][(y1+z1%2)//2][(z1+z1%2)//2-1]
+                                rgbshift = pattern[(x1+z1%2)//2][(y1+z1%2)//2][z]
                             con.vox_queue += [(x1, y1, z1, palette[layer[x][y][z]][:3], dither, rgbshift)]
         con.vox_build_start()
         return 'Model loaded'

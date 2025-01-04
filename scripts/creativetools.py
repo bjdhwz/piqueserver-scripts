@@ -151,7 +151,7 @@ def add_dither(color, dither):
 def sel(con, shape=None):
     """
     Select area
-    /sel <selection shape: cuboid/[e]llipsoid/[c]ylinder>
+    /sel <selection shape: cuboid/[e]llipsoid/[c]ylinder/[A1-H8] sector>
     """
     if shape == None:
         if not con.sel_a:
@@ -166,6 +166,14 @@ def sel(con, shape=None):
         con.send_chat('Selection shape changed')
         if con.sel_a:
             return
+    elif shape.upper() in [chr(x // 8 + ord('A')) + str(x % 8 + 1) for x in range(64)]:
+        sector = shape.upper()
+        x, y = coordinates(sector)
+        con.sel_shape = 'cuboid'
+        con.selection = False
+        con.sel_a = [x, y, 0]
+        con.sel_b = [x+63, y+63, 63]
+        return 'Sector %s selected' % sector
     else:
         con.sel_shape = 'cuboid'
         con.send_chat('Selection shape changed')
@@ -267,6 +275,8 @@ def replace(con, source, colors):
         colors = ('#%02X%02X%02X ' % con.color,)
     weights = [int(x.split('%')[0]) if '%' in x else 1 for x in colors]
     colors = [get_rgb(x.split('%')[1]) if '%' in x else get_rgb(x) for x in colors]
+    if 'pattern_brick' in colors:
+        pattern = [[[random.choice(range(-int(value), int(value)+1)) for z in range(64)] for y in range(32)] for x in range(32)]
     add_undo_step(con)
     for x, y, z in get_points(con):
         block = con.protocol.world.map.get_color(x, y, z)
@@ -301,8 +311,21 @@ def replace(con, source, colors):
             elif color == 'crossprocess':
                 r, g, b = block
                 queue(con, x, y, z, (r, g, int(value)))
-            elif color == 'noise':
+            elif color == 'pattern_noise':
                 queue(con, x, y, z, add_dither(block, value))
+            elif color == 'pattern_brick':
+                d = pattern[(x%64+z%2)//2][(y%64+z%2)//2][z]
+                queue(con, x, y, z, tuple([min(max(int(v) + d, 0), 255) for v in block]))
+            elif color == 'pattern_check':
+                if (x + y + z) % 2:
+                    queue(con, x, y, z, tuple([min(max(int(v) + int(value), 0), 255) for v in block]))
+                else:
+                    queue(con, x, y, z, tuple([min(max(int(v) - int(value), 0), 255) for v in block]))
+            elif color == 'pattern_check2x':
+                if (x//2 + y//2 + z//2) % 2:
+                    queue(con, x, y, z, tuple([min(max(int(v) + int(value), 0), 255) for v in block]))
+                else:
+                    queue(con, x, y, z, tuple([min(max(int(v) - int(value), 0), 255) for v in block]))
             elif color in ('empty', 'keep'):
                 queue(con, x, y, z)
             else:
@@ -424,11 +447,12 @@ def crossprocess(con, value=153):
     replace(con, 'solid', ('crossprocess', float(value)))
 
 @command()
-def noise(con, value=3):
+def noise(con, value=3, pattern='noise'):
     """
-    /noise <value>
+    /noise <value> <pattern> - possible patterns: noise, brick, check, check2x
     """
-    replace(con, 'solid', ('noise', float(value)))
+    if pattern in ['noise', 'brick', 'check', 'check2x']:
+        replace(con, 'solid', ('pattern_' + pattern, float(value)))
 
 
 @command('shift', 'mov')
@@ -734,8 +758,10 @@ def forestgen(con, sector, dither=3):
     b = [(x-0.5)**0.5 for x in [1, 3, 5, 7, 9, 13, 15, 19, 21, 23, 25]]
     treetypes = [
         (a, (0,0),(0,0),(1,1),(2,1),(2,1),(2,1),(1,1),(1,1),(1,1),(0,1),(0,1)), # cypress
+        (a, (0,0),(0,0),(1,1),(1,1),(2,1),(2,1),(2,1),(2,1),(1,1),(1,1),(1,1),(1,1),(0,1),(0,1),(0,1)), # high cypress
         (a, (0,0),(3,1),(4,1),(3,1),(1,1),(3,1),(1,1),(0,1),(1,1),(0,1),(0,1)), # spruce
         (a, (1,0),(4,1),(7,1),(4,1),(3,1),(4,1),(3,1),(1,1),(3,1),(1,1),(0,1),(1,1),(0,1),(0,1)), # big spruce
+        (a, (0,0),(3,1),(4,1),(3,1),(4,1),(3,1),(1,1),(3,1),(1,1),(3,1),(1,1),(0,1),(1,1),(0,1),(1,1),(0,1),(0,1)), # high spruce
         (b, (1,0),(0,0),(3,1),(4,1),(4,1),(3,1),(1,1)),
         (b, (1,0),(0,0),(4,1),(3,1),(4,1),(3,1),(1,1)),
         (b, (1,0),(0,0),(0,0),(1,1),(3,1),(4,1),(3,1),(4,1),(3,1),(1,1)),
