@@ -80,13 +80,14 @@ def pay(connection, receiver, amount, *comment):
     return "Money have been sent"
 
 @command('balance', 'bal', 'money')
-def balance(connection, player=None):
+def balance(connection, *player):
     """
     Check player's balance
     /balance [player]
     """
     if not player:
         player = connection.name
+    player = ' '.join(player)
     cur = con.cursor()
     balance = cur.execute('SELECT user, balance FROM wallets WHERE user LIKE ?', ('%'+player+'%',)).fetchone()
     cur.close()
@@ -106,7 +107,7 @@ def balancetop(connection):
     return '\n'.join(["%s%s%s" % (x[0].ljust(16), x[1], S) for x in top])
 
 @command()
-def transactions(connection, player=None):
+def transactions(connection, *player):
     """
     Show latest transactions
     /transactions [player]
@@ -115,6 +116,7 @@ def transactions(connection, player=None):
         return "Please log in using /login first"
     if not player:
         player = connection.name
+    player = ' '.join(player)
     if player.lower() != connection.name.lower():
         if not connection.admin:
             return "Can't show transactions of other players"

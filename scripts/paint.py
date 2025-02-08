@@ -26,6 +26,15 @@ def paint(connection, player):
 
     player.painting = not player.painting
 
+    if player.painting:
+        if player.jetpack:
+            player.jetpack = False
+            player.used_jetpack = True
+    else:
+        if player.used_jetpack:
+            player.jetpack = True
+            player.used_jetpack = False
+
     message = 'now painting' if player.painting else 'no longer painting'
     player.send_chat("You're %s" % message)
     if connection is not player and connection in protocol.players.values():
@@ -65,6 +74,7 @@ def paint_ray(player):
 def apply_script(protocol, connection, config):
     class PaintConnection(connection):
         painting = False
+        used_jetpack = False
 
         def on_reset(self):
             self.painting = False

@@ -125,13 +125,14 @@ def group(connection, player=None, user_type=None):
         return "Account not found"
 
 @command()
-def status(connection, player=None):
+def status(connection, *player):
     """
     Show player's authorization status
     /status
     """
     if not player:
         player = connection.name
+    player = ' '.join(player)
     if player.lower() not in [p.name.lower() for p in connection.protocol.players.values()]:
         return "Player not found"
     cur = con.cursor()
@@ -145,11 +146,12 @@ def status(connection, player=None):
         connection.send_chat("%s is not registered" % user)
 
 @command('unregister', 'unreg', admin_only=True)
-def unregister(connection, player):
+def unregister(connection, *player):
     """
     Removes player's account, letting them register again
     /unreg <player>
     """
+    player = ' '.join(player)
     cur = con.cursor()
     if cur.execute('SELECT user FROM users WHERE user = ?', (player,)).fetchone():
         cur.execute('DELETE FROM users WHERE user = ?', (player,))

@@ -225,7 +225,7 @@ def expand(con, amount, direction=None):
             con.sel_a[i] += amount*sign
         else:
             con.sel_b[i] += amount*sign
-    return 'Selection expanded'
+    return 'Selection expanded [%sx%sx%s]' % tuple([max(x)-min(x)+1 for x in zip(con.sel_a, con.sel_b)])
 
 @command()
 def contract(con, amount, direction=None):
@@ -245,7 +245,7 @@ def contract(con, amount, direction=None):
             con.sel_a[i] -= amount*sign
         else:
             con.sel_b[i] -= amount*sign
-    return 'Selection contracted'
+    return 'Selection contracted [%sx%sx%s]' % tuple([max(x)-min(x)+1 for x in zip(con.sel_a, con.sel_b)])
 
 def selection(con, func, args):
     if con.sel_a and con.sel_b:
@@ -530,6 +530,7 @@ def cut(con):
     if selection(con, cut, ()):
         return
     add_undo_step(con)
+    con.clipboard = []
     dx, dy, dz = [min(x, y) for x, y in zip(con.sel_a, con.sel_b)]
     for x, y, z in get_points(con):
         con.clipboard += [[x-dx, y-dy, z-dz, con.protocol.world.map.get_color(x, y, z)]]
@@ -741,9 +742,9 @@ def randomrepeat(con, colors='2%#444,2%#555,2%#343,2%#554,2%#565,2%#455,2%#465,#
     for x, y, z in get_points(con):
         color = colors[volume[(x % n) * n**2 + (y % n) * n + z]]
         if color:
-            queue(con, x, y, z, add_dither(color, int(dither)), False)
+            queue(con, x, y, z, add_dither(color, int(dither)))
         else:
-            queue(con, x, y, z, None, False)
+            queue(con, x, y, z, None)
     con.build_queue_start()
 
 @command()
@@ -861,7 +862,7 @@ def apply_script(protocol, connection, config):
                     if coords:
                         if self.sel_a:
                             self.sel_b = list(coords)
-                            self.send_chat('Selection created')
+                            self.send_chat('Selection created [%sx%sx%s]' % tuple([max(x)-min(x)+1 for x in zip(self.sel_a, self.sel_b)]))
                             if self.deferred:
                                 func, args = self.deferred
                                 func(self, *args)
@@ -888,7 +889,7 @@ def apply_script(protocol, connection, config):
             if self.selection:
                 if self.sel_a:
                     self.sel_b = [x, y, z]
-                    self.send_chat('Selection created')
+                    self.send_chat('Selection created [%sx%sx%s]' % tuple([max(x)-min(x)+1 for x in zip(self.sel_a, self.sel_b)]))
                     if self.deferred:
                         func, args = self.deferred
                         func(self, *args)
@@ -904,7 +905,7 @@ def apply_script(protocol, connection, config):
             if self.selection:
                 if self.sel_a:
                     self.sel_b = [x, y, z]
-                    self.send_chat('Selection created')
+                    self.send_chat('Selection created [%sx%sx%s]' % tuple([max(x)-min(x)+1 for x in zip(self.sel_a, self.sel_b)]))
                     if self.deferred:
                         func, args = self.deferred
                         func(self, *args)

@@ -195,13 +195,14 @@ def sign(connection, *text):
     return "You can only sign blocks within your claim"
 
 @command('claimed', 'owned', 'shared')
-def owned(connection, player=None):
+def owned(connection, *player):
     """
     List owned sectors
     /owned <player>
     """
     cur = con.cursor()
     if player:
+        player = ' '.join(player)
         shared_sectors = cur.execute('SELECT sector FROM shared WHERE player = ?', (player,)).fetchall()
         if shared_sectors:
             connection.send_chat("Shared: " + ', '.join([x[0] for x in shared_sectors]))
@@ -282,7 +283,7 @@ def unclaim(connection, sector):
     return "You can only unclaim your sectors"
 
 @command()
-def share(connection, sector, player):
+def share(connection, sector, *player):
     """
     Let other players build in a sector
     /share <sector> <player>
@@ -299,6 +300,7 @@ def share(connection, sector, player):
         if owner != True:
             return "You can only share sectors you claim. Claim a sector using /claim first"
 
+    player = ' '.join(player)
     if connection.name.lower() == player.lower():
         if not connection.admin:
             return "Enter the name of the player you want to let to build in that sector"
@@ -334,7 +336,7 @@ def share(connection, sector, player):
     return "Player %s now can build in that sector" % player
 
 @command()
-def unshare(connection, sector, player):
+def unshare(connection, sector, *player):
     """
     Remove access to a sector for a player
     /unshare <sector> <player>
@@ -351,6 +353,7 @@ def unshare(connection, sector, player):
         if owner != True:
             return "You can only manage sectors you claim. Claim a sector using /claim first"
 
+    player = ' '.join(player)
     if connection.name.lower() == player.lower():
         if not connection.admin:
             return "Enter the name of the player"
@@ -540,7 +543,11 @@ def fixnameloop(connection):
     Debug command to restart loop
     /fixnameloop
     """
-    connection.protocol.sector_names_loop.start(connection.sector_names_interval)
+    try:
+        connection.protocol.sector_names_loop.stop()
+        connection.protocol.sector_names_loop.start(connection.protocol.sector_names_interval)
+    except:
+        pass
 
 
 def apply_script(protocol, connection, config):
@@ -737,26 +744,29 @@ def apply_script(protocol, connection, config):
 
         def get_spawn_location(self):
             try:
-                cur = con.cursor()
-                my_sectors = [x[0] for x in cur.execute('SELECT sector FROM claims WHERE owner = ?', (self.name,)).fetchall()]
-                if my_sectors:
-                    spawn_sector = random.choice(my_sectors)
+                if self.current_sector:
+                    spawn_sector = self.current_sector
                 else:
-                    shared_sectors = [x[0] for x in cur.execute('SELECT sector FROM shared WHERE player = ?', (self.name,)).fetchall()]
-                    if shared_sectors:
-                        spawn_sector = random.choice(shared_sectors)
+                    cur = con.cursor()
+                    my_sectors = [x[0] for x in cur.execute('SELECT sector FROM claims WHERE owner = ?', (self.name,)).fetchall()]
+                    if my_sectors:
+                        spawn_sector = random.choice(my_sectors)
                     else:
-                        claimed_sectors = [x[0] for x in cur.execute('SELECT sector FROM claims').fetchall()]
-                        unclaimed_sectors = [x for x in ALL_SECTORS if x not in claimed_sectors]
-                        if unclaimed_sectors:
-                            spawn_sector = random.choice(unclaimed_sectors)
+                        shared_sectors = [x[0] for x in cur.execute('SELECT sector FROM shared WHERE player = ?', (self.name,)).fetchall()]
+                        if shared_sectors:
+                            spawn_sector = random.choice(shared_sectors)
                         else:
-                            public_sectors = [x[0] for x in cur.execute('SELECT sector FROM claims WHERE mode = "public"').fetchall()]
-                            if public_sectors:
-                                spawn_sector = random.choice(public_sectors)
+                            claimed_sectors = [x[0] for x in cur.execute('SELECT sector FROM claims').fetchall()]
+                            unclaimed_sectors = [x for x in ALL_SECTORS if x not in claimed_sectors]
+                            if unclaimed_sectors:
+                                spawn_sector = random.choice(unclaimed_sectors)
                             else:
-                                spawn_sector = random.choice(ALL_SECTORS)
-                cur.close()
+                                public_sectors = [x[0] for x in cur.execute('SELECT sector FROM claims WHERE mode = "public"').fetchall()]
+                                if public_sectors:
+                                    spawn_sector = random.choice(public_sectors)
+                                else:
+                                    spawn_sector = random.choice(ALL_SECTORS)
+                    cur.close()
             except:
                 spawn_sector = random.choice(ALL_SECTORS)
 

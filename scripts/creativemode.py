@@ -112,6 +112,8 @@ def jump(connection):
     Teleport to where you're looking at
     /jump
     """
+    if connection.team.id == 0:
+        return 'Not available to PVP team'
     ray = connection.world_object.cast_ray(144)
     if ray:
         x, y, z = ray
@@ -140,7 +142,7 @@ def fly_shortcut(connection):
     /f
     """
     if connection.team == connection.protocol.team_1:
-        return 'Fly not available in PVP team'
+        return 'Not available to PVP team'
     else:
         connection.fly = not connection.fly
         message = 'now flying' if connection.fly else 'no longer flying'

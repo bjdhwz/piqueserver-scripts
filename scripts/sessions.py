@@ -19,15 +19,16 @@ cur.close()
 
 
 @command()
-def seen(connection, player=None):
+def seen(connection, *player):
     """
     Shows the most recent date the player with that name joined
     /seen <player>
     """
     if not player:
         player = connection.name
+    player = ' '.join(player)
     cur = con.cursor()
-    record = cur.execute('SELECT id, dt, user FROM sessions WHERE user = ? ORDER BY id DESC LIMIT 1', (player,)).fetchone()
+    record = cur.execute('SELECT id, dt, user FROM sessions WHERE user LIKE ? ORDER BY id DESC LIMIT 1', ('%'+player+'%',)).fetchone()
     cur.close()
     if record:
         session_id, dt, name = record
@@ -52,20 +53,21 @@ def session(connection, session_id=None):
         return "Sessions not found"
 
 @command(admin_only=True)
-def sessions(connection, player=None):
+def sessions(connection, *player):
     """
     Show recent sessions
     /sessions <player>
     """
     cur = con.cursor()
     if player:
+        player = ' '.join(player)
         records = cur.execute('SELECT id, dt, ip, client, logged_in FROM sessions WHERE user = ? ORDER BY id DESC LIMIT 5', (player,)).fetchall()
     else:
-        records = cur.execute('SELECT id, dt, user, ip, client, logged_in FROM sessions ORDER BY id DESC LIMIT 5').fetchall()
+        records = cur.execute('SELECT id, dt, ip, client, logged_in FROM sessions ORDER BY id DESC LIMIT 5').fetchall()
     cur.close()
     if records:
         for record in records:
-            connection.send_chat("%s | %s | %s | %s | %s | logged in: %s" % record)
+            connection.send_chat("%s | %s | %s | %s | logged in: %s" % record)
     else:
         return "No sessions found for this player"
 
@@ -102,12 +104,13 @@ def recent(connection):
         return "No recent sessions found"
 
 @command(admin_only=True)
-def same(connection, player):
+def same(connection, *player):
     """
     Show similar sessions
     /same <name>
     """
     cur = con.cursor()
+    player = ' '.join(player)
     record = cur.execute('SELECT id, user, ip FROM sessions WHERE user = ? ORDER BY id DESC LIMIT 1', (player,)).fetchone()
     if record:
         session_id, user, current_ip = record
@@ -118,7 +121,10 @@ def same(connection, player):
             for ip in set(ips):
                 if ip != current_ip:
                     othernames += [(ip, x[0]) for x in cur.execute('SELECT user FROM sessions WHERE ip = ?', (ip,)).fetchall()]
-    cur.close()
+        cur.close()
+    else:
+        cur.close()
+        return "Player not found"
 
     ips_by_frequency = list(Counter(ips).most_common(len(set(ips))))
     if len(ips_by_frequency) > 5:
@@ -163,7 +169,7 @@ def sameip(connection, ip):
             connection.send_chat('<%s> (%s/%s%%)' % (name, freq, percent))
         connection.send_chat('Names used with this IP:')
     else:
-        return 'No names found'
+        return "No names found"
 
 
 def apply_script(protocol, connection, config):
