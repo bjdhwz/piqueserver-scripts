@@ -29,6 +29,8 @@ ALL_SECTORS = [chr(x // 8 + ord('A')) + str(x % 8 + 1) for x in range(64)]
 
 NOAUTOFLY = []
 
+CHAIR_ENABLED = False # Creates a block under player on right-click while in the air
+
 try:
     with open(os.path.join(config.config_dir, 'no_fly_list.txt')) as f:
         NOAUTOFLY = f.read().splitlines()
@@ -147,6 +149,20 @@ def fly_shortcut(connection):
         connection.fly = not connection.fly
         message = 'now flying' if connection.fly else 'no longer flying'
         connection.send_chat("You're %s" % message)
+
+@command()
+@target_player
+def unstick(connection, player):
+    """
+    Unstick yourself or another player and inform everyone on the server of it
+    /unstick [player]
+    """
+    if player.name.lower() != connection.name.lower():
+        if not connection.admin:
+            return "You can't use this command on other players"
+    connection.protocol.broadcast_chat("%s unstuck %s" %
+                                  (connection.name, player.name), irc=True)
+    player.set_location_safe(player.get_location())
 
 @command(admin_only=True)
 def flag(connection, team, hide=False):
@@ -350,9 +366,9 @@ def apply_script(protocol, connection, config):
                 x, y, z = self.get_location()
                 if self.tool == BLOCK_TOOL and self.world_object.sneak:
                     ori = self.world_object.orientation
-                    x += round(ori.x * 2)
-                    y += round(ori.y * 2)
-                    z += round(ori.z * 2)
+                    x += round(ori.x * 3)
+                    y += round(ori.y * 3)
+                    z += round(ori.z * 3)
                     if int(x) in range(512) and int(y) in range(512) and int(z) in range(64):
                         if connection.on_block_build_attempt(self, x, y, z) == False:
                             return
@@ -366,19 +382,34 @@ def apply_script(protocol, connection, config):
                             self.protocol.map.set_point(x, y, z, self.color)
                             self.protocol.broadcast_contained(block_action, save=True)
                             connection.on_block_build(self, int(x), int(y), int(z))
-                z += 4 - int(self.world_object.crouch)
-                if int(x) in range(512) and int(y) in range(512) and int(z) in range(64):
-                    if self.temp_block:
-                        xt, yt, zt = self.temp_block
-                        if int(x) != int(xt) or int(y) != int(yt) or int(z) < int(zt):
-                            block_action = BlockAction()
-                            block_action.player_id = 34
-                            block_action.x = xt
-                            block_action.y = yt
-                            block_action.z = zt
-                            block_action.value = DESTROY_BLOCK
-                            self.send_contained(block_action)
-                            self.temp_block = None
+                if CHAIR_ENABLED:
+                    z += 4 - int(self.world_object.crouch)
+                    if int(x) in range(512) and int(y) in range(512) and int(z) in range(64):
+                        if self.temp_block:
+                            xt, yt, zt = self.temp_block
+                            if int(x) != int(xt) or int(y) != int(yt) or int(z) < int(zt):
+                                block_action = BlockAction()
+                                block_action.player_id = 34
+                                block_action.x = xt
+                                block_action.y = yt
+                                block_action.z = zt
+                                block_action.value = DESTROY_BLOCK
+                                self.send_contained(block_action)
+                                self.temp_block = None
+                                if z < 53 and not self.protocol.map.get_solid(x, y, z-1) and not self.protocol.map.get_solid(x, y, z) and not self.world_object.sneak and not self.tool == WEAPON_TOOL:
+                                    self.temp_block = (x, y, z)
+                                    block_action = BlockAction()
+                                    block_action.player_id = 34
+                                    block_action.x = x
+                                    block_action.y = y
+                                    block_action.z = z
+                                    set_color = SetColor()
+                                    set_color.player_id = 34
+                                    set_color.value = make_color(255, 255, 255)
+                                    self.protocol.broadcast_contained(set_color)
+                                    block_action.value = BUILD_BLOCK
+                                    self.send_contained(block_action)
+                        else:
                             if z < 53 and not self.protocol.map.get_solid(x, y, z-1) and not self.protocol.map.get_solid(x, y, z) and not self.world_object.sneak and not self.tool == WEAPON_TOOL:
                                 self.temp_block = (x, y, z)
                                 block_action = BlockAction()
@@ -392,20 +423,6 @@ def apply_script(protocol, connection, config):
                                 self.protocol.broadcast_contained(set_color)
                                 block_action.value = BUILD_BLOCK
                                 self.send_contained(block_action)
-                    else:
-                        if z < 53 and not self.protocol.map.get_solid(x, y, z-1) and not self.protocol.map.get_solid(x, y, z) and not self.world_object.sneak and not self.tool == WEAPON_TOOL:
-                            self.temp_block = (x, y, z)
-                            block_action = BlockAction()
-                            block_action.player_id = 34
-                            block_action.x = x
-                            block_action.y = y
-                            block_action.z = z
-                            set_color = SetColor()
-                            set_color.player_id = 34
-                            set_color.value = make_color(255, 255, 255)
-                            self.protocol.broadcast_contained(set_color)
-                            block_action.value = BUILD_BLOCK
-                            self.send_contained(block_action)
             connection.on_secondary_fire_set(self, state)
 
     class NoCaptureProtocol(protocol):

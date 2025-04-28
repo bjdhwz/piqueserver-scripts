@@ -87,7 +87,8 @@ def balance(connection, *player):
     """
     if not player:
         player = connection.name
-    player = ' '.join(player)
+    else:
+        player = ' '.join(player)
     cur = con.cursor()
     balance = cur.execute('SELECT user, balance FROM wallets WHERE user LIKE ?', ('%'+player+'%',)).fetchone()
     cur.close()
@@ -116,7 +117,8 @@ def transactions(connection, *player):
         return "Please log in using /login first"
     if not player:
         player = connection.name
-    player = ' '.join(player)
+    else:
+        player = ' '.join(player)
     if player.lower() != connection.name.lower():
         if not connection.admin:
             return "Can't show transactions of other players"

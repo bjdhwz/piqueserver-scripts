@@ -18,6 +18,7 @@ def apply_script(protocol, connection, config):
     class JetPackConnection(connection):
         def __init__(self, *args, **kwargs):
             self.jetpack = JETPACK
+            self.painting = False
             connection.__init__(self, *args, **kwargs)
 
         def on_spawn(self, pos):
@@ -47,7 +48,7 @@ def apply_script(protocol, connection, config):
                 callLater(0.12, self.use_jetpack)
 
         def on_animation_update(self, jump, crouch, sneak, sprint):
-            if self.jetpack:
+            if self.jetpack and not self.painting:
                 if sneak:
                     self.can_fly = True;
                     self.use_jetpack()

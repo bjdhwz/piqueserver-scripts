@@ -26,9 +26,12 @@ def seen(connection, *player):
     """
     if not player:
         player = connection.name
-    player = ' '.join(player)
+    else:
+        player = ' '.join(player)
     cur = con.cursor()
-    record = cur.execute('SELECT id, dt, user FROM sessions WHERE user LIKE ? ORDER BY id DESC LIMIT 1', ('%'+player+'%',)).fetchone()
+    record = cur.execute('SELECT id, dt, user FROM sessions WHERE user = ? ORDER BY id DESC LIMIT 1', (player,)).fetchone()
+    if not record:
+        record = cur.execute('SELECT id, dt, user FROM sessions WHERE user LIKE ? ORDER BY id DESC LIMIT 1', ('%'+player+'%',)).fetchone()
     cur.close()
     if record:
         session_id, dt, name = record

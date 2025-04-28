@@ -685,7 +685,7 @@ def apply_script(protocol, connection, config):
             if self.can_build(x, y, z) == False:
                 return False
 
-            if self.sculpting: # /sculpt
+            if self.sculpting or self.sel_a: # /sculpt and creativetools.py
                 if self.can_build(x, y, z) != True:
                     self.send_chat("Build commands can only be used in your sectors")
                     return False
@@ -710,7 +710,7 @@ def apply_script(protocol, connection, config):
             if self.can_build(x, y, z) == False:
                 return False
 
-            if self.sculpting:
+            if self.sculpting or self.sel_a: # /sculpt and creativetools.py
                 if self.can_build(x, y, z) != True:
                     self.send_chat("Build commands can only be used in your sectors")
                     return False

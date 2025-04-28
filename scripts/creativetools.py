@@ -651,14 +651,15 @@ def flip(con, plane):
 def brush(con, radius=None, mode='set', *colors):
     """
     Toggle brush mode
-    /brush <radius> <set/replace/fill/repaint>
+    /brush <radius 1-6> <set/replace/fill/repaint>
     """
     con.brush_mode = mode
     con.brush_colors = colors
     if radius:
         radius = int(radius)
-        if radius > 32:
-            radius = 32
+        if radius > 6:
+            if not con.admin:
+                radius = 6
         elif radius < 1:
             radius = 1
     if con.brush:

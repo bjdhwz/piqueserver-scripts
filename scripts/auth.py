@@ -132,7 +132,8 @@ def status(connection, *player):
     """
     if not player:
         player = connection.name
-    player = ' '.join(player)
+    else:
+        player = ' '.join(player)
     if player.lower() not in [p.name.lower() for p in connection.protocol.players.values()]:
         return "Player not found"
     cur = con.cursor()

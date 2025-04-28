@@ -19,21 +19,12 @@ from piqueserver.commands import command, admin, get_player, target_player
 PAINT_RAY_LENGTH = 32.0
 
 
-@command()
+@command('paint', 'p')
 @target_player
 def paint(connection, player):
     protocol = connection.protocol
 
     player.painting = not player.painting
-
-    if player.painting:
-        if player.jetpack:
-            player.jetpack = False
-            player.used_jetpack = True
-    else:
-        if player.used_jetpack:
-            player.jetpack = True
-            player.used_jetpack = False
 
     message = 'now painting' if player.painting else 'no longer painting'
     player.send_chat("You're %s" % message)
@@ -74,7 +65,6 @@ def paint_ray(player):
 def apply_script(protocol, connection, config):
     class PaintConnection(connection):
         painting = False
-        used_jetpack = False
 
         def on_reset(self):
             self.painting = False

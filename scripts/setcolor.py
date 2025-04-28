@@ -26,7 +26,7 @@ def setcolor(connection, *args):
     /clr <r> <g> <b>, /clr <#aabbcc>, /clr <#abc>, no arguments to get random color or /clr ? to get current color
     """
     if len(args) == 3:
-        rgb = tuple(int(x) for x in args)
+        rgb = tuple(min(int(x), 255) for x in args)
     elif len(args) == 1:
         if args[0] == '?':
             return '#%02X%02X%02X ' % connection.color + str(connection.color)
