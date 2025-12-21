@@ -14,6 +14,7 @@ from pyspades.constants import *
 from piqueserver.commands import command
 
 from cbc.core import buildingstate
+from cbc.core.cbc import ServerPlayer
 import cbc
 
 
@@ -48,7 +49,7 @@ def gradient_to(connection):
 
 
 def build_gradient_line(protocol, colors, points):
-    sp = cbc.core.cbc.ServerPlayer()
+    sp = ServerPlayer()
     
     block_action = BlockAction()
     block_action.player_id = sp.player_id
@@ -65,7 +66,7 @@ def build_gradient_line(protocol, colors, points):
         pct = 1 - (i+0.0) / lp, (i+0.0) / lp if lp else (1, 0)
         color = tuple(int(round(sum(c*p for c, p in zip(crng, pct)))) for crng in color_range)
 
-        map_.set_point(*points[i], color=color)
+        map_.set_point(*points[i], color)
         
         set_color.value = make_color(*color)
         protocol.broadcast_contained(set_color, save=True)

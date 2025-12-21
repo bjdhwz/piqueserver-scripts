@@ -59,7 +59,7 @@ def register(connection, password, password_repeat):
     connection.protocol.notify_admins("%s registered successfully" % connection.name)
     return "Registration successful. Use /login <password> to log in"
 
-@command()
+@command('login', 'log')
 def login(connection, password):
     """
     Log in if you're registered on the server
@@ -107,6 +107,8 @@ def group(connection, player=None, user_type=None):
     """
     if not player:
         player = connection.name
+    if player.startswith('#'):
+        player = connection.protocol.players[int(player[1:])].name
     cur = con.cursor()
     res = cur.execute('SELECT user, user_type, reg_dt, reg_session FROM users WHERE user = ?', (player,)).fetchone()
     cur.close()
@@ -134,6 +136,8 @@ def status(connection, *player):
         player = connection.name
     else:
         player = ' '.join(player)
+        if player.startswith('#'):
+            player = connection.protocol.players[int(player[1:])].name
     if player.lower() not in [p.name.lower() for p in connection.protocol.players.values()]:
         return "Player not found"
     cur = con.cursor()
@@ -153,6 +157,8 @@ def unregister(connection, *player):
     /unreg <player>
     """
     player = ' '.join(player)
+    if player.startswith('#'):
+        player = connection.protocol.players[int(player[1:])].name
     cur = con.cursor()
     if cur.execute('SELECT user FROM users WHERE user = ?', (player,)).fetchone():
         cur.execute('DELETE FROM users WHERE user = ?', (player,))
@@ -183,35 +189,8 @@ def logout(connection):
         cur.close()
         return "You've logged out"
 
-@command(admin_only=True)
-def sql(connection, *args):
-    """
-    Debug command to execute raw SQL queries
-    /sql
-    """
-    try:
-        cur = con.cursor()
-        res = cur.execute(" ".join(args)).fetchall()
-        con.commit()
-        cur.close()
-        return str(res)
-    except Exception as e:
-        return str(e)
-
 
 def apply_script(protocol, connection, config):
-    class AuthProtocol(protocol):
-
-        def notify_player(self, msg, name):
-            for player in self.players.values():
-                if player.name.lower() == name.lower():
-                    player.send_chat(msg)
-
-        def notify_admins(self, msg):
-            for player in self.players.values():
-                if player.admin:
-                    player.send_chat('[Admin] ' + msg)
-
     class AuthConnection(connection):
         logged_in = False
 
@@ -230,4 +209,4 @@ def apply_script(protocol, connection, config):
                     con.commit()
             cur.close()
 
-    return AuthProtocol, AuthConnection
+    return protocol, AuthConnection

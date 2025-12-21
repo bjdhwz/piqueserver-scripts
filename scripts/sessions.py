@@ -28,6 +28,8 @@ def seen(connection, *player):
         player = connection.name
     else:
         player = ' '.join(player)
+        if player.startswith('#'):
+            player = connection.protocol.players[int(player[1:])].name
     cur = con.cursor()
     record = cur.execute('SELECT id, dt, user FROM sessions WHERE user = ? ORDER BY id DESC LIMIT 1', (player,)).fetchone()
     if not record:
@@ -64,6 +66,8 @@ def sessions(connection, *player):
     cur = con.cursor()
     if player:
         player = ' '.join(player)
+        if player.startswith('#'):
+            player = connection.protocol.players[int(player[1:])].name
         records = cur.execute('SELECT id, dt, ip, client, logged_in FROM sessions WHERE user = ? ORDER BY id DESC LIMIT 5', (player,)).fetchall()
     else:
         records = cur.execute('SELECT id, dt, ip, client, logged_in FROM sessions ORDER BY id DESC LIMIT 5').fetchall()
@@ -114,6 +118,8 @@ def same(connection, *player):
     """
     cur = con.cursor()
     player = ' '.join(player)
+    if player.startswith('#'):
+        player = connection.protocol.players[int(player[1:])].name
     record = cur.execute('SELECT id, user, ip FROM sessions WHERE user = ? ORDER BY id DESC LIMIT 1', (player,)).fetchone()
     if record:
         session_id, user, current_ip = record
@@ -174,10 +180,53 @@ def sameip(connection, ip):
     else:
         return "No names found"
 
+@command(admin_only=True)
+def sql(connection, *args):
+    """
+    Debug command to execute raw SQL queries
+    /sql
+    """
+    return connection.getplayer(*args)
+    try:
+        cur = con.cursor()
+        res = cur.execute(" ".join(args)).fetchall()
+        con.commit()
+        cur.close()
+        return str(res)
+    except Exception as e:
+        return str(e)
+
 
 def apply_script(protocol, connection, config):
+    class SessionsProtocol(protocol):
+
+        def notify_player(self, msg, name):
+            for player in self.players.values():
+                if player.name.lower() == name.lower():
+                    player.send_chat(msg)
+
+        def notify_admins(self, msg):
+            for player in self.players.values():
+                if player.admin:
+                    player.send_chat('[Admin] ' + msg)
+
     class SessionsConnection(connection):
         session = None
+
+        def getplayer(self, *player):
+            if not player:
+                player = self.name
+            else:
+                player = ' '.join(player)
+            cur = con.cursor()
+            record = cur.execute('SELECT user FROM sessions WHERE user = ? ORDER BY id DESC LIMIT 1', (player,)).fetchone()
+            if not record:
+                record = cur.execute('SELECT user FROM sessions WHERE user LIKE ? ORDER BY id DESC LIMIT 1', ('%' + player + '%',)).fetchone()
+            cur.close()
+            if record:
+                return record[0]
+            else:
+                return None
 
         def on_login(self, name):
             cur = con.cursor()
@@ -187,4 +236,4 @@ def apply_script(protocol, connection, config):
             cur.close()
             connection.on_login(self, name)
 
-    return protocol, SessionsConnection
+    return SessionsProtocol, SessionsConnection

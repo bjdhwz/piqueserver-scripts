@@ -1,10 +1,10 @@
 """
-Builds and saves models in MagicaVoxel format
+Loads and saves models in MagicaVoxel format
 Put your *.vox files in ~/config/vox folder
 
-Requires numpy
+Requires NumPy
 
-Credits to VoxBox project for code to handle MagicaVoxel format: https://github.com/DavidWilliams81/voxbox
+Credits to VoxBox project for the code to handle MagicaVoxel format: https://github.com/DavidWilliams81/voxbox
 
 Commands
 ^^^^^^^^
@@ -14,8 +14,14 @@ Commands
 .. codeauthor:: Liza
 """
 
-import numpy as np
-import os, random, struct
+try:
+    import numpy as np
+except:
+    print("vox.py is disabled, because NumPy is not found. Do 'pip install numpy' to use vox.py")
+import os
+from random import choice
+from struct import pack, unpack
+from glob import glob
 from piqueserver.commands import command
 from piqueserver.config import config
 from pyspades.common import make_color
@@ -23,11 +29,11 @@ from pyspades.constants import BUILD_BLOCK
 from pyspades.contained import BlockAction, SetColor
 from twisted.internet.task import LoopingCall
 
-voxdir = os.path.join(config.config_dir, 'vox')
+VOXDIR = os.path.join(config.config_dir, 'vox')
 
 
 def build(con, x, y, z, rgb, dither, rgbshift):
-    dither = random.choice(range(-int(dither), int(dither)+1))
+    dither = choice(range(-int(dither), int(dither)+1))
     rgb = [int(value) + dither + rgbshift for value in rgb]
     rgb = [255 if value > 255 else value for value in rgb]
     rgb = tuple([0 if value < 0 else value for value in rgb])
@@ -48,18 +54,21 @@ def build(con, x, y, z, rgb, dither, rgbshift):
 def loadvox(con, fn=None, dither=0, rotate='', shift=1, pattern='', px=None, py=None, pz=None):
     """
     Place .vox file
-    /loadvox <filename> <dither 0-127 (default 0)> <rotate ([[x]-axis, [y]-axis, [z]-axis), flip ([h]orizontal, [v]ertical) - can be combined> <shift> <pattern>
+    /loadvox <filename - supports wildcard *> <dither 0-127 (default 0)> <rotate ([[x]-axis, [y]-axis, [z]-axis), flip ([h]orizontal, [v]ertical) - can be combined> <shift> <pattern>
     """
     if not pz:
         px, py, pz = con.get_location()
-    paths = [x[:-4] for x in os.listdir(voxdir) if x.endswith('.vox')]
-    rgbshift = 0
-    if pattern:
-        if pattern == 'brick':
-            pattern = np.reshape([random.choice(range(-int(dither), int(dither)+1)) for x in range(256*256*64)], (256, 256, 64))
+    paths = glob(os.path.join(VOXDIR, fn + '.vox'))
+    if paths:
+        rgbshift = 0
+        if pattern:
+            if pattern == 'brick':
+                pattern = np.reshape([choice(range(-int(dither), int(dither)+1)) for x in range(256*256*64)], (256, 256, 64))
         dither = 0
-    if fn in paths:
-        path = os.path.join(voxdir, fn + '.vox')
+        if len(paths) > 1:
+            path = choice(paths)
+        else:
+            path = paths[0]
         data, palette = read(path)
         layer = data[0]
         rotate += 'y'
@@ -78,6 +87,10 @@ def loadvox(con, fn=None, dither=0, rotate='', shift=1, pattern='', px=None, py=
             px -= len(layer) // 2
             py -= len(layer[0]) // 2
             shift = 0
+        con.sel_a = (int(px)+int(shift), int(py)+int(shift), int(pz)+2)
+        con.sel_b = (int(px)+len(layer)-1+int(shift), int(py)+len(layer[0])-1+int(shift), int(pz)-len(layer[0][0])+1+2)
+        con.undo += [[(con.sel_a, con.sel_b), []]]
+        con.redo = []
         for x in range(len(layer)):
             for y in range(len(layer[0])):
                 for z in range(len(layer[0][0])):
@@ -88,17 +101,18 @@ def loadvox(con, fn=None, dither=0, rotate='', shift=1, pattern='', px=None, py=
                         if (x1 in range(512)) and (y1 in range(512)) and (z1 in range(64)):
                             if pattern:
                                 rgbshift = pattern[(x1+z1%2)//2][(y1+z1%2)//2][z]
+                            con.undo[-1][1] += [(x1, y1, z1, con.protocol.world.map.get_color(x1, y1, z1))]
                             con.vox_queue += [(x1, y1, z1, palette[layer[x][y][z]][:3], dither, rgbshift)]
         con.vox_build_start()
         return 'Model loaded'
     else:
-        return 'Available models: ' + ', '.join(paths)
+        return 'File not found'
 
 @command(admin_only=True)
 def voxbrush(con, fn=None, dither=0, rotate='', pattern='', shift='center'):
     """
     Place .vox file by clicking
-    /voxbrush <filename> <dither 0-127 (default 0)> <rotate ([[x]-axis, [y]-axis, [z]-axis), flip ([h]orizontal, [v]ertical) - can be combined> <pattern>
+    /voxbrush <filename - supports wildcard *> <dither 0-127 (default 0)> <rotate ([[x]-axis, [y]-axis, [z]-axis), flip ([h]orizontal, [v]ertical) - can be combined> <pattern>
     """
     if con.voxbrush:
         if fn:
@@ -111,8 +125,51 @@ def voxbrush(con, fn=None, dither=0, rotate='', pattern='', shift='center'):
         con.voxbrush = (fn, dither, rotate, shift, pattern)
         return 'Vox brush enabled'
 
+
+def initialize_centroids(X, k):
+    centroids = []
+    centroids.append(X[np.random.choice(X.shape[0])])
+    for _ in range(1, k):
+        dist_sq = np.min(np.linalg.norm(X[:, np.newaxis] - np.array(centroids), axis=2)**2, axis=1)
+        probs = dist_sq / dist_sq.sum()
+        cumulative_probs = np.cumsum(probs)
+        r = np.random.rand()
+        index = np.searchsorted(cumulative_probs, r)
+        centroids.append(X[index])
+    return np.array(centroids)
+
+def assign_clusters(X, centroids):
+    distances = np.linalg.norm(X[:, np.newaxis] - centroids, axis=2)
+    return np.argmin(distances, axis=1)
+
+def reinitialize_empty_centroid(X, centroids):
+    distances = np.min(np.linalg.norm(X[:, np.newaxis] - centroids, axis=2), axis=1)
+    farthest_point = X[np.argmax(distances)]
+    noise = np.random.normal(scale=1e-6, size=farthest_point.shape)
+    return farthest_point + noise
+
+def update_centroids(X, labels, k):
+    new_centroids = np.zeros((k, X.shape[1]))
+    for i in range(k):
+        points = X[labels == i]
+        if len(points) == 0:
+            new_centroids[i] = reinitialize_empty_centroid(X, new_centroids)
+        else:
+            new_centroids[i] = points.mean(axis=0)
+    return new_centroids
+
+def kmeans(X, k, max_iters=5, tol=1e-4):
+    centroids = initialize_centroids(X, k)
+    for _ in range(max_iters):
+        labels = assign_clusters(X, centroids)
+        new_centroids = update_centroids(X, labels, k)
+        if np.all(np.linalg.norm(new_centroids - centroids, axis=1) < tol):
+            break
+        centroids = new_centroids
+    return labels, centroids
+
 @command(admin_only=True)
-def savevox(con, fn=None):
+def savevox(con, fn=None, colors=None, method='kmeans'):
     """
     Save selection into a .vox file
     /savevox <filename>
@@ -121,23 +178,57 @@ def savevox(con, fn=None):
         if con.savevox_point_a:
             if con.savevox_point_b:
                 c = list(zip(con.savevox_point_a, con.savevox_point_b))
-                v = np.zeros((max(c[2])-min(c[2])+1, max(c[1])-min(c[1])+1, max(c[0])-min(c[0])+1), np.uint8)
-                palette = [(0, 0, 0, 0)]
-                for x in range(min(c[0]), max(c[0])+1):
-                    for y in range(min(c[1]), max(c[1])+1):
-                        for z in range(min(c[2]), max(c[2])+1):
-                            color = con.protocol.world.map.get_color(x, y, z)
-                            if color:
-                                r, g, b = color
-                                rgba = (r, g, b, 255)
-                                if rgba not in palette:
-                                    palette += [rgba]
-                                i = palette.index(rgba)
-                                if i > 255:
-                                    return "Can't save more than 255 colors"
-                            else:
-                                i = 0
-                            v[max(c[2])-z][y-min(c[1])][max(c[0])-x] = i
+                ax, bx = min(c[0]), max(c[0])
+                ay, by = min(c[1]), max(c[1])
+                az, bz = min(c[2]), max(c[2])
+                if not colors:
+                    v = np.zeros((bz-az+1, by-ay+1, bx-ax+1), np.uint8)
+                    palette = [(0, 0, 0, 0)]
+                    for x in range(ax, bx+1):
+                        for y in range(ay, by+1):
+                            for z in range(az, bz+1):
+                                color = con.protocol.world.map.get_color(x, y, z)
+                                if color:
+                                    rgba = (*color, 255)
+                                    if rgba not in palette:
+                                        palette += [rgba]
+                                    i = palette.index(rgba)
+                                    if i > 255:
+                                        colors = 255
+                                        con.send_chat("More than 255 colors found, number of saved colors reduced")
+                                        break
+                                else:
+                                    i = 0
+                                v[bz-z][y-ay][bx-x] = i
+                            if i > 255:
+                                break
+                        if i > 255:
+                            break
+                if colors:
+                    colors = int(colors)
+                    if colors > 255:
+                        return "Can't save more than 255 colors"
+                    v = np.zeros((bz-az+1, by-ay+1, bx-ax+1, 4), np.uint8)
+                    for x in range(ax, bx+1):
+                        for y in range(ay, by+1):
+                            for z in range(az, bz+1):
+                                color = con.protocol.world.map.get_color(x, y, z)
+                                if color:
+                                    rgba = (*color, 255)
+                                else:
+                                    rgba = (0, 0, 0, 255)
+                                v[bz-z][y-ay][bx-x] = rgba
+                    blocks = v.reshape(-1, 4)
+                    blocks, palette = kmeans(blocks, colors)
+                    blocks += 1
+                    v = blocks.reshape(v.shape[:3]).astype(np.uint8)
+                    for x in range(ax, bx+1):
+                        for y in range(ay, by+1):
+                            for z in range(az, bz+1):
+                                color = con.protocol.world.map.get_color(x, y, z)
+                                if not color:
+                                    v[bz-z][y-ay][bx-x] = 0
+                    palette = np.insert(palette, 0, [0, 0, 0, 0], axis=0).astype(np.uint8)
                 palette = np.pad(palette, ((0, 256-len(palette)), (0, 0)))
                 write([v], fn, np.array(palette, np.uint8))
                 con.savevox_selection = False
@@ -169,6 +260,11 @@ def apply_script(protocol, connection, config):
             self.vox_loop = None
             self.vox_queue = []
             self.voxbrush = False
+            # Loaded model will be automatically selected and will support /undo if creativetools.py is installed
+            self.sel_a = None
+            self.sel_b = None
+            self.undo = None
+            self.redo = None
 
         def on_shoot_set(self, state):
             if state == True:
@@ -218,7 +314,7 @@ def write_chunk(id, chunk_content, child_chunks):
     
     chunk_content_length = len(chunk_content) if chunk_content else 0
     child_chunks_length = len(child_chunks) if child_chunks else 0
-    data = data + struct.pack('ii', chunk_content_length, child_chunks_length)
+    data = data + pack('ii', chunk_content_length, child_chunks_length)
     
     if chunk_content:
         data = data + chunk_content
@@ -229,7 +325,7 @@ def write_chunk(id, chunk_content, child_chunks):
 
 def write_size_chunk(volume):
     
-    chunk_content = struct.pack('iii', len(volume[0][0]), len(volume[0]), len(volume))
+    chunk_content = pack('iii', len(volume[0][0]), len(volume[0]), len(volume))
     return write_chunk(b'SIZE', chunk_content, None)
     
 def write_xyzi_chunk(volume):
@@ -240,20 +336,20 @@ def write_xyzi_chunk(volume):
     voxels = voxels.transpose()
     voxels = voxels.reshape(-1)
     
-    chunk_content = struct.pack('i', len(values))
+    chunk_content = pack('i', len(values))
     chunk_content += bytearray(voxels.tobytes())
                     
     return write_chunk(b'XYZI', chunk_content, None)
     
 def write_pack_chunk(volume_list):
     
-    chunk_content = struct.pack('i', len(volume_list))
+    chunk_content = pack('i', len(volume_list))
     return write_chunk(b'PACK', chunk_content, None)
     
 def write_rgba_chunk(palette):
     
     chunk_content = bytearray(palette[1:256].tobytes())
-    chunk_content += struct.pack('xxxx')    
+    chunk_content += pack('xxxx')    
     return write_chunk(b'RGBA', chunk_content, None) 
 
 def write_main_chunk(volume_list, palette):
@@ -282,10 +378,10 @@ def write(volume_list, filename, palette = None):
         raise TypeError("All volumes in 'volume_list' must be 3D")
     
     data = bytearray(b'VOX ')
-    data = data + struct.pack('i', 150);
+    data = data + pack('i', 150);
     data = data + write_main_chunk(volume_list, palette)
     
-    file = open(os.path.join(voxdir, filename + '.vox'), "wb")
+    file = open(os.path.join(VOXDIR, filename + '.vox'), "wb")
     file.write(data)
     file.close()
 
@@ -295,7 +391,7 @@ def read_chunk(data):
     
 ##    print(id)
     
-    (chunk_content_size, child_chunks_size), data = struct.unpack("II", data[:8]), data[8:]
+    (chunk_content_size, child_chunks_size), data = unpack("II", data[:8]), data[8:]
     
     chunk_content = data[0 : chunk_content_size]
     child_chunks = data[chunk_content_size : chunk_content_size + child_chunks_size]
@@ -310,7 +406,7 @@ def read_chunk(data):
     
 def read_size_chunk(file):
 
-    (col_count, row_count, plane_count) = struct.unpack("III", file.read(12))
+    (col_count, row_count, plane_count) = unpack("III", file.read(12))
     
 ##    print("size", col_count, row_count, plane_count)
     
@@ -318,12 +414,12 @@ def read_size_chunk(file):
     
 def read_xyzi_chunk(file, volume_to_fill):
     
-    (voxel_count,) = struct.unpack("I", file.read(4))
+    (voxel_count,) = unpack("I", file.read(4))
     #chunk_content = chunk_content[4:]
 
     for i in range(voxel_count):
         
-        (col, row, plane, index) = struct.unpack("BBBB", file.read(4))        
+        (col, row, plane, index) = unpack("BBBB", file.read(4))        
         volume_to_fill[plane][row][col] = index
                       
 def read_rgba_chunk(file):
@@ -344,7 +440,7 @@ def read_pack_chunk(chunk_content):
     
 def read_main_chunk(file):
     
-    (chunk_content_size, child_chunks_size) = struct.unpack("II", file.read(8))
+    (chunk_content_size, child_chunks_size) = unpack("II", file.read(8))
     
 ##    print(chunk_content_size, child_chunks_size)
     
@@ -356,7 +452,7 @@ def read_main_chunk(file):
         id=file.read(4)
         if not id: break
             
-        (chunk_content_size, child_chunks_size) = struct.unpack("II", file.read(8))
+        (chunk_content_size, child_chunks_size) = unpack("II", file.read(8))
         
         #print(id)
         
@@ -380,7 +476,7 @@ def read(filename):
     file = open(filename, "rb")
     
     id = file.read(4)
-    (ver,) = struct.unpack("I", file.read(4))
+    (ver,) = unpack("I", file.read(4))
     
 
     main_chunk_header = file.read(4)

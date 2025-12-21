@@ -15,7 +15,7 @@ Commands
 """
 
 import os
-from piqueserver.commands import command, target_player
+from piqueserver.commands import command, get_player, target_player
 from piqueserver.config import config
 from pyspades import contained as loaders
 from pyspades.common import coordinates, make_color
@@ -127,6 +127,41 @@ def jump(connection):
             y += 512
         elif y > 511:
             y -= 512
+        if z < 0:
+            z = 0
+        elif z > 63:
+            z = 63
+        x = int(x)
+        y = int(y)
+        z = int(z) - 2
+        for i in range(64):
+            if connection.protocol.map.get_solid(x, y, z):
+                z -= 1
+            else:
+                break
+        connection.set_location((x, y, z))
+    else:
+        return "No block to jump to"
+
+@command('jt', 'jumptop')
+def jumptop(connection):
+    """
+    Teleport on top of what you're looking at
+    /jumptop
+    """
+    if connection.team.id == 0:
+        return 'Not available to PVP team'
+    ray = connection.world_object.cast_ray(144)
+    if ray:
+        x, y, z = ray
+        if x < 0:
+            x += 512
+        elif x > 511:
+            x -= 512
+        if y < 0:
+            y += 512
+        elif y > 511:
+            y -= 512
         x = int(x)
         y = int(y)
         for i in range(64):
@@ -167,7 +202,7 @@ def unstick(connection, player):
 @command(admin_only=True)
 def flag(connection, team, hide=False):
     """
-    Allows to use intel for decorative purposes
+    Place team's intel at your current position. Allows to use intel for decorative purposes
     /flag <1|2> <hide> - bring intel to your current location or hide it
     """
     if team == '1':
@@ -175,7 +210,7 @@ def flag(connection, team, hide=False):
     elif team == '2':
         flag = connection.protocol.team_2.flag
     else:
-        return "Usage: /flag <1|2> <hide>"
+        return ValueError
 
     if hide:
         flag.set(*HIDE_POS)
@@ -183,6 +218,53 @@ def flag(connection, team, hide=False):
         x, y, z = [round(x*2)/2 for x in connection.get_location()]
         flag.set(x, y, z+2.5)
     flag.update()
+
+@command(admin_only=True)
+def base(connection, team, hide=False):
+    """
+    Place team's tent at your current position
+    /base <1|2> <hide> - bring tent to your current location or hide it
+    """
+    if team == '1':
+        base = connection.protocol.team_1.base
+    elif team == '2':
+        base = connection.protocol.team_2.base
+    else:
+        return ValueError
+
+    if hide:
+        base.set(*HIDE_POS)
+    else:
+        x, y, z = [round(x*2)/2 for x in connection.get_location()]
+        base.set(x, y, z+2.5)
+    base.update()
+
+@command(admin_only=True)
+def pickup(connection):
+    """
+    Pick the intel up
+    /pickup
+    """
+    connection.team.other.flag.player = connection
+    intel_pickup = loaders.IntelPickup()
+    intel_pickup.player_id = connection.player_id
+    connection.protocol.broadcast_contained(intel_pickup, save=True)
+
+@command(admin_only=True)
+def drop(connection):
+    """
+    Drop the intel
+    /drop
+    """
+    connection.team.other.flag.player = None
+    intel_drop = loaders.IntelDrop()
+    intel_drop.player_id = connection.player_id
+    pos = connection.world_object.position
+    intel_drop.x = pos.x
+    intel_drop.y = pos.y
+    intel_drop.z = round(pos.z * 2) / 2 + 2.5
+    connection.protocol.broadcast_contained(intel_drop, save=True)
+    connection.on_flag_drop()
 
 @command(admin_only=True)
 def tppos(connection, x, y, z):
@@ -252,6 +334,25 @@ def toggle_grenade_damage(connection):
     else:
         connection.protocol.notify_admins('Grenade damage has been enabled')
 
+@command('toggleswitch', 'tts', admin_only=True)
+def toggle_switch(connection, player=None):
+    """
+    Toggle team switching for everyone in the server or for a given player
+    /toggleswitch [player]
+    """
+    if player is not None:
+        player = get_player(connection.protocol, player)
+        value = not player.teamswitch
+        player.teamswitch = value
+        msg = '%s can change teams again' if value else '%s is disabled from changing teams'
+        connection.protocol.broadcast_chat(msg % player.name)
+    else:
+        value = not connection.protocol.teamswitch
+        connection.protocol.teamswitch = value
+        on_off = ['OFF', 'ON'][int(value)]
+        connection.protocol.broadcast_chat(
+            'Team switching has been toggled %s!' % on_off)
+
 
 def apply_script(protocol, connection, config):
     class NoCaptureConnection(connection):
@@ -266,6 +367,7 @@ def apply_script(protocol, connection, config):
             self.gt_loop = None
             self.quest_mode = False
             self.temp_block = None
+            self.teamswitch = True
 
         def update_pingmon(self):
             blocks = '▁▂▃▄▅▆▇█'
@@ -298,6 +400,10 @@ def apply_script(protocol, connection, config):
             return False
 
         def on_team_join(self, team):
+            if not self.teamswitch:
+                return False
+            if not self.protocol.teamswitch:
+                return False
             if team == self.protocol.team_1:
                 if self.fly:
                     self.fly = False
@@ -338,6 +444,8 @@ def apply_script(protocol, connection, config):
                 if player.team.id == 1:
                     return False
             if self.team.id == 1:
+                if self.admin and _type == 1:
+                    return
                 return False
 
         def on_orientation_update(self, x, y, z):
@@ -428,6 +536,7 @@ def apply_script(protocol, connection, config):
     class NoCaptureProtocol(protocol):
 
         disable_grenade_damage = True
+        teamswitch = True
 
         def on_base_spawn(self, x, y, z, base, entity_id):
             return HIDE_POS

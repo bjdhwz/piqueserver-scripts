@@ -44,7 +44,7 @@ def apply_script(protocol, connection, config):
                 input_data.sneak = self.world_object.sneak
                 input_data.sprint = self.world_object.sprint
                 input_data.jump = True
-                self.protocol.send_contained(input_data)
+                self.protocol.broadcast_contained(input_data)
                 callLater(0.12, self.use_jetpack)
 
         def on_animation_update(self, jump, crouch, sneak, sprint):

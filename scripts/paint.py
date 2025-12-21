@@ -56,15 +56,19 @@ def paint_ray(player):
         return
     location = player.world_object.cast_ray(PAINT_RAY_LENGTH)
     if location:
-        x, y, z = location
-        if player.on_block_build_attempt(x, y, z) == False:
-            return
-        paint_block(player.protocol, player, x, y, z, player.color)
+        if [location] * 3 != player.last_painted_blocks:
+            x, y, z = location
+            if player.on_block_build_attempt(x, y, z) == False:
+                return
+            paint_block(player.protocol, player, x, y, z, player.color)
+            player.last_painted_blocks += [location]
+            player.last_painted_blocks = player.last_painted_blocks[1:]
 
 
 def apply_script(protocol, connection, config):
     class PaintConnection(connection):
         painting = False
+        last_painted_blocks = [None] * 3
 
         def on_reset(self):
             self.painting = False

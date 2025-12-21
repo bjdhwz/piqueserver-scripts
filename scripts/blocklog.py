@@ -11,7 +11,7 @@ Commands
 .. codeauthor:: Liza
 """
 
-import datetime
+from datetime import datetime, timedelta, timezone
 import os, sqlite3
 from twisted.internet.task import LoopingCall
 from piqueserver.commands import command, get_player
@@ -32,9 +32,16 @@ cur_log.execute('CREATE TABLE IF NOT EXISTS blocklog(id INTEGER PRIMARY KEY, tim
 con_log.commit()
 cur_log.close()
 
-results_per_page = 6
+RESULTS_PER_PAGE = 6
 
-@command('history', 'h', 'i')
+
+ALL_SECTORS = [chr(x // 8 + ord('A')) + str(x % 8 + 1) for x in range(64)]
+
+def get_sector(x, y):
+    return chr(int(x // 64) + ord('A')) + str(int(y) // 64 + 1)
+
+
+@command('history', 'h')
 def history(connection):
     """
     Check block history with left-click. Right-click to check space directly above the block. Follow up clicks show older records
@@ -46,6 +53,49 @@ def history(connection):
     else:
         return "History mode disabled"
 
+@command('inspect', 'i')
+def inspect(connection, days=5, hours=0, sector=None):
+    """
+    Show the most active players in the sector in the last X days/hours
+    /inspect <sector> <days> <hours>
+    """
+    if sector:
+        sector = sector.upper()
+        if sector not in ALL_SECTORS:
+            return "Invalid sector. Example of a sector: A1"
+    else:
+        if connection.world_object:
+            x, y, z = connection.get_location()
+            sector = get_sector(x, y)
+    sx, sy = coordinates(sector)
+    time = datetime.now(timezone.utc) - timedelta(days=int(days), hours=int(hours))
+    cur_log = con_log.cursor()
+    actions = cur_log.execute('SELECT session, action FROM blocklog WHERE timestamp > ? AND (xyz >> 15) & 511 >= ? AND (xyz >> 15) & 511 < ? AND (xyz >> 6) & 511 >= ? AND (xyz >> 6) & 511 < ?', (
+        int(time.timestamp()), sx, sx+64, sy, sy+64,)).fetchall()
+    cur_log.close()
+    sessions = list(set([x[0] for x in actions]))
+    cur = con.cursor()
+    players = [x[0] for x in cur.execute('SELECT user FROM sessions WHERE id IN (%s)' %
+        ','.join('?'*len(sessions)), sessions).fetchall()]
+    cur.close()
+    players = {sessions[i]:players[i] for i in range(len(players))}
+    stats = {}
+    for session, action in actions:
+        player = players[session]
+        if player not in stats:
+            stats[player] = [0, 0]
+        if action:
+            stats[player][1] += 1
+        else:
+            stats[player][0] -= 1
+    if stats:
+        connection.send_chat('=====')
+        for player in [x[0] for x in sorted(stats.items(), key=lambda i: sum([abs(x) for x in i[1]]))][-6:]:
+            broke, placed = stats[player]
+            connection.send_chat("%s [\4%s\6/\5+%s\6] \0" % (player, broke, placed,))
+    else:
+        connection.send_chat('No recent history in the sector')
+
 @command()
 def blocks(connection, player=None):
     """
@@ -54,6 +104,10 @@ def blocks(connection, player=None):
     """
     if not player:
         player = connection.name
+    else:
+        player = ' '.join(player)
+        if player.startswith('#'):
+            player = connection.protocol.players[int(player[1:])].name
     cur = con.cursor()
     sessions = [x[0] for x in cur.execute('SELECT id FROM sessions WHERE user = ?', (player,)).fetchall()]
     cur.close()
@@ -117,12 +171,12 @@ def apply_script(protocol, connection, config):
                         xyz = x << 15 | y << 6 | z-(i-1)
                         r, g, b = self.block_destroy_color[i]
                         color = r << 16 | g << 8 | b
-                        self.protocol.blocklog_queue += [(int(datetime.datetime.now(datetime.timezone.utc).timestamp()), xyz, self.session, False, color, False,)]
+                        self.protocol.blocklog_queue += [(int(datetime.now(timezone.utc).timestamp()), xyz, self.session, False, color, False,)]
             elif type(self.block_destroy_color[0]) == type(int()):
                 xyz = x << 15 | y << 6 | z
                 r, g, b = self.block_destroy_color
                 color = r << 16 | g << 8 | b
-                self.protocol.blocklog_queue += [(int(datetime.datetime.now(datetime.timezone.utc).timestamp()), xyz, self.session, False, color, False,)]
+                self.protocol.blocklog_queue += [(int(datetime.now(timezone.utc).timestamp()), xyz, self.session, False, color, False,)]
 
         def on_block_build(self, x, y, z):
             if connection.on_block_build(self, x, y, z) == False:
@@ -130,7 +184,7 @@ def apply_script(protocol, connection, config):
             xyz = x << 15 | y << 6 | z
             r, g, b = self.color
             color = r << 16 | g << 8 | b
-            timestamp = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+            timestamp = int(datetime.now(timezone.utc).timestamp())
             self.protocol.blocklog_queue = [None if (x[1] == xyz and x[3] == True) else x for x in self.protocol.blocklog_queue] # reduce repeating entries (e.g. from painting)
             self.protocol.blocklog_queue = [x for x in self.protocol.blocklog_queue if x]
             self.protocol.blocklog_queue += [(timestamp, xyz, self.session, True, color, False,)]
@@ -143,7 +197,7 @@ def apply_script(protocol, connection, config):
                 xyz = x << 15 | y << 6 | z
                 r, g, b = self.color
                 color = r << 16 | g << 8 | b
-                self.protocol.blocklog_queue += [(int(datetime.datetime.now(datetime.timezone.utc).timestamp()), xyz, self.session, True, color, False,)]
+                self.protocol.blocklog_queue += [(int(datetime.now(timezone.utc).timestamp()), xyz, self.session, True, color, False,)]
 
         def on_orientation_update(self, x, y, z):
             if self.history_mode:
@@ -161,7 +215,7 @@ def apply_script(protocol, connection, config):
                             cur = con.cursor()
                             self.send_cmsg("%s | %s | %s %s %s %s | %s | %s %s #%02X%02X%02X %s" % (
                                 action_id,
-                                datetime.datetime.fromtimestamp(timestamp).isoformat(sep=' ')[2:16],
+                                datetime.fromtimestamp(timestamp).isoformat(sep=' ')[2:16],
                                 (xyz >> 15) & 511,
                                 (xyz >> 6) & 511,
                                 xyz & 63,
@@ -193,7 +247,7 @@ def apply_script(protocol, connection, config):
                             self.number_of_clicks = 0
                         cur_log = con_log.cursor()
                         res = cur_log.execute('SELECT id, timestamp, xyz, session, action, color, undone FROM blocklog WHERE xyz = ? ORDER BY id DESC LIMIT ?, ?', (
-                            xyz, self.number_of_clicks * results_per_page, (self.number_of_clicks + 1) * results_per_page)).fetchall()
+                            xyz, self.number_of_clicks * RESULTS_PER_PAGE, (self.number_of_clicks + 1) * RESULTS_PER_PAGE)).fetchall()
                         cur_log.close()
                         if xyz == self.last_checked_block:
                             self.number_of_clicks += 1
@@ -204,7 +258,7 @@ def apply_script(protocol, connection, config):
                                 cur = con.cursor()
                                 self.send_chat("%s | %s | %s %s %s %s | %s | %s %s #%02X%02X%02X %s \0" % (
                                     action_id,
-                                    datetime.datetime.fromtimestamp(timestamp).isoformat(sep=' ')[2:16],
+                                    datetime.fromtimestamp(timestamp).isoformat(sep=' ')[2:16],
                                     (xyz >> 15) & 511,
                                     (xyz >> 6) & 511,
                                     xyz & 63,
@@ -218,7 +272,7 @@ def apply_script(protocol, connection, config):
                                 )
                                 cur.close()
                             self.send_chat("[Page %s]" % self.number_of_clicks)
-                            if len(res) < results_per_page:
+                            if len(res) < RESULTS_PER_PAGE:
                                 self.number_of_clicks = 0
                         else:
                             self.number_of_clicks = 0

@@ -6,12 +6,20 @@ from twisted.internet import reactor # as you can see i seriously wasnt trying a
 
 
 NOHOOK = []
+HOOKJUMP = []
 
 try:
     with open(os.path.join(config.config_dir, 'no_hook.txt')) as f:
         NOHOOK = f.read().splitlines()
 except:
     f = open(os.path.join(config.config_dir, 'no_hook.txt'), 'w')
+    f.close()
+
+try:
+    with open(os.path.join(config.config_dir, 'hookjump.txt')) as f:
+        HOOKJUMP = f.read().splitlines()
+except:
+    f = open(os.path.join(config.config_dir, 'hookjump.txt'), 'w')
     f.close()
 
 @command('hook', 'hs')
@@ -62,6 +70,23 @@ def set_loc(hooker, goal, posi, ori, counter):
         return set_loc(hooker, goal, (posi[0]+ori[0], posi[1]+ori[1], posi[2]+ori[2]), ori, counter+1) # recursion to make it even more unreadable
 
 @command()
+def hookjump(connection):
+    """
+    Toggle alternative behaviour of hook similar to /jump
+    /hookjump
+    """
+    if connection.name in HOOKJUMP:
+        HOOKJUMP.remove(connection.name)
+        connection.send_chat('Hookjump will be disabled')
+        connection.hookjump = False
+    else:
+        HOOKJUMP.append(connection.name)
+        connection.send_chat('Hookjump will be enabled')
+        connection.hookjump = True
+    with open(os.path.join(config.config_dir, 'hookjump.txt'), 'w') as f:
+        f.write('\n'.join(HOOKJUMP))
+
+@command()
 def nohook(connection):
     """
     Toggle enabling hookshot on join
@@ -70,9 +95,11 @@ def nohook(connection):
     if connection.name in NOHOOK:
         NOHOOK.remove(connection.name)
         connection.send_chat('Hookshot will be enabled')
+        connection.hooking = True
     else:
         NOHOOK.append(connection.name)
         connection.send_chat('Hookshot will be disabled')
+        connection.hooking = False
     with open(os.path.join(config.config_dir, 'no_hook.txt'), 'w') as f:
         f.write('\n'.join(NOHOOK))
 
@@ -82,6 +109,7 @@ def apply_script(protocol, connection, config):
     class hooconnection(connection):
         painting = False
         hooking = True
+        hookjump = False
         hookshot_length = 100 # 90
         cooldown_time = 0 # only for pussies
         disable_hook = False
@@ -95,21 +123,52 @@ def apply_script(protocol, connection, config):
 
         def on_animation_update(self, jump, crouch, sneak, sprint):
             if self.hooking and sneak and self.world_object.cast_ray(self.hookshot_length) != None and self.disable_hook != True and self.has_intel != True and self.painting != True and self.jetpack != True:
-                try:
-                    a,b,c = self.world_object.cast_ray(self.hookshot_length)
-                    d,e,f = self.world_object.position.get()
-                    g,h,i = self.world_object.orientation.get()
-                    self.disable_hook = True
-                    reactor.callLater(self.cooldown_time, unhook, self)
-                    set_loc(self, (a,b,c), (d,e,f), (g,h,i), 10) # man i should realy stop using so many tuples
-                except:
-                    return False
+                if self.hookjump:
+                    try:
+                        ray = self.world_object.cast_ray(144)
+                        if ray:
+                            x, y, z = ray
+                            if x < 0:
+                                x += 512
+                            elif x > 511:
+                                x -= 512
+                            if y < 0:
+                                y += 512
+                            elif y > 511:
+                                y -= 512
+                            if z < 0:
+                                z = 0
+                            elif z > 63:
+                                z = 63
+                            x = int(x)
+                            y = int(y)
+                            z = int(z) - 2
+                            for i in range(64):
+                                if self.protocol.map.get_solid(x, y, z):
+                                    z -= 1
+                                else:
+                                    break
+                            self.set_location((x, y, z))
+                    except:
+                        return False
+                else:
+                    try:
+                        a,b,c = self.world_object.cast_ray(self.hookshot_length)
+                        d,e,f = self.world_object.position.get()
+                        g,h,i = self.world_object.orientation.get()
+                        self.disable_hook = True
+                        reactor.callLater(self.cooldown_time, unhook, self)
+                        set_loc(self, (a,b,c), (d,e,f), (g,h,i), 10) # man i should realy stop using so many tuples
+                    except:
+                        return False
             return connection.on_animation_update(self, jump, crouch, sneak, sprint)
 
         def on_login(self, name):
             connection.on_login(self, name)
             if self.name in NOHOOK:
                 self.hooking = False
+            if self.name in HOOKJUMP:
+                self.hookjump = True
 
         def on_flag_take(u):
             u.has_intel = True

@@ -125,7 +125,7 @@ def sector(connection, sector=None):
     else:
         status += 'claimed by <%s> since %s' % (owner, dt[:10])
     if shared:
-        return "Sector %s is %s and shared with %s" % (sector, status, ', '.join([x[0] for x in shared]))
+        return "Sector %s is %s and shared with %s" % (sector, status, ', '.join(['<%s>' % x[0] for x in shared]))
     else:
         return "Sector %s is %s" % (sector, status)
 
@@ -154,6 +154,7 @@ def title(connection, sector, *name):
         cur.close()
         connection.protocol.notify_admins("%s named %s \"%s\"" % (connection.name, sector, name))
         if name:
+            connection.send_cmsg("Welcome to %s" % name, 'Status')
             return "Claim is now named %s" % name
         else:
             return "Claim no longer has a name"
@@ -173,7 +174,7 @@ def sign(connection, *text):
     if has_access == True or connection.admin:
         cur = con.cursor()
         if text:
-            text = escape_control_codes(' '.join(text[:85]))[:85]
+            text = escape_control_codes(' '.join(text))[:256]
             res = cur.execute('SELECT text FROM signs WHERE x = ? AND y = ? AND z = ?', (x, y, z)).fetchone()
             if res:
                 cur.execute('UPDATE signs SET text = ? WHERE x = ? AND y = ? AND z = ?', (text, x, y, z))
@@ -203,6 +204,8 @@ def owned(connection, *player):
     cur = con.cursor()
     if player:
         player = ' '.join(player)
+        if player.startswith('#'):
+            player = connection.protocol.players[int(player[1:])].name
         shared_sectors = cur.execute('SELECT sector FROM shared WHERE player = ?', (player,)).fetchall()
         if shared_sectors:
             connection.send_chat("Shared: " + ', '.join([x[0] for x in shared_sectors]))
@@ -301,6 +304,8 @@ def share(connection, sector, *player):
             return "You can only share sectors you claim. Claim a sector using /claim first"
 
     player = ' '.join(player)
+    if player.startswith('#'):
+        player = connection.protocol.players[int(player[1:])].name
     if connection.name.lower() == player.lower():
         if not connection.admin:
             return "Enter the name of the player you want to let to build in that sector"
@@ -354,6 +359,8 @@ def unshare(connection, sector, *player):
             return "You can only manage sectors you claim. Claim a sector using /claim first"
 
     player = ' '.join(player)
+    if player.startswith('#'):
+        player = connection.protocol.players[int(player[1:])].name
     if connection.name.lower() == player.lower():
         if not connection.admin:
             return "Enter the name of the player"
@@ -406,7 +413,6 @@ def public(connection, sector):
     cur.close()
     connection.protocol.notify_admins("%s made %s public" % (connection.name, sector))
     return "Sector %s is now public" % sector
-    return "You can only manage sectors you claim. Claim a sector using /claim first"
 
 @command()
 def quest(connection, sector):
@@ -545,6 +551,10 @@ def fixnameloop(connection):
     """
     try:
         connection.protocol.sector_names_loop.stop()
+    except:
+        pass
+    try:
+        connection.protocol.sector_names_loop = LoopingCall(connection.protocol.display_notifications)
         connection.protocol.sector_names_loop.start(connection.protocol.sector_names_interval)
     except:
         pass
@@ -558,6 +568,7 @@ def apply_script(protocol, connection, config):
             self.sector_names_interval = 0.2
             self.sector_names_loop = LoopingCall(self.display_notifications)
             self.sector_names_loop.start(self.sector_names_interval)
+            self.current_title = None
 
         def display_notifications(self):
             for player in self.players.values():
@@ -574,10 +585,14 @@ def apply_script(protocol, connection, config):
                         name, mode, fog_db = res
                         if fog_db:
                             fog = hex2rgb(fog_db)
-                        if name:
-                            player.send_cmsg("Welcome to %s" % name, 'Status')
+                        if name != self.current_title:
+                            if name:
+                                player.send_cmsg("Welcome to %s" % name, 'Status')
+                            self.current_title = name
                         if mode == 'quest':
                             player.quest_mode = True
+                    else:
+                        self.current_title = None
                     player.sector_fog_transition(fog)
                     player.current_sector = get_sector(x, y)
                 block = player.world_object.cast_ray(32)
@@ -585,12 +600,22 @@ def apply_script(protocol, connection, config):
                     block = tuple(block)
                 if block in SIGNS:
                     if player.current_sign:
-                        text, color, sign_block = player.current_sign
+                        text, color, sign_block, step = player.current_sign
                         if block == sign_block:
-                            player.send_cmsg(text, 'Notice')
+                            if len(text) > 85:
+                                if step > 0:
+                                    offset = step % len(text)
+                                else:
+                                    offset = 0
+                                player.send_cmsg((text * 2)[offset:85+offset], 'Notice')
+                                player.current_sign[3] += 1
+                                if step > len(text) + 85:
+                                    step = 0
+                            else:
+                                player.send_cmsg(text, 'Notice')
                             return
                         else:
-                            text, color, sign_block = player.current_sign
+                            text, color, sign_block, step = player.current_sign
                             build(player, *sign_block, color)
                             player.current_sign = None
                             player.send_cmsg('\0', 'Notice')
@@ -599,13 +624,13 @@ def apply_script(protocol, connection, config):
                     text = cur.execute('SELECT text FROM signs WHERE x = ? AND y = ? AND z = ?', (x, y, z)).fetchone()
                     cur.close()
                     if text:
-                        player.current_sign = (text[0], self.world.map.get_color(x, y, z), block)
-                        player.send_cmsg(text[0], 'Notice')
+                        player.current_sign = [text[0], self.world.map.get_color(x, y, z), block, -2]
+                        player.send_cmsg(text[0][:85], 'Notice')
                         build(player, x, y, z, None)
                         build(player, x, y, z, (255, 255, 0))
                 else:
                     if player.current_sign:
-                        text, color, sign_block = player.current_sign
+                        text, color, sign_block, step = player.current_sign
                         build(player, *sign_block, color)
                         player.current_sign = None
                         player.send_cmsg('\0', 'Notice')
@@ -638,6 +663,7 @@ def apply_script(protocol, connection, config):
             self.sfog_b = None
             self.sfog_step = None
             self.sfog_loop = None
+            self.state = None
 
         def sector_fog_transition(self, color):
             if self.sfog_loop:
@@ -737,15 +763,22 @@ def apply_script(protocol, connection, config):
                     return False
 
         def on_spawn(self, pos):
-            self.protocol.sector_names_loop.stop()
-            self.protocol.sector_names_loop = LoopingCall(self.protocol.display_notifications)
-            self.protocol.sector_names_loop.start(self.protocol.sector_names_interval)
+            try:
+                self.protocol.sector_names_loop.stop()
+            except:
+                pass
+            try:
+                self.protocol.sector_names_loop = LoopingCall(self.protocol.display_notifications)
+                self.protocol.sector_names_loop.start(self.protocol.sector_names_interval)
+            except:
+                pass
             return connection.on_spawn(self, pos)
 
         def get_spawn_location(self):
             try:
                 if self.current_sector:
-                    spawn_sector = self.current_sector
+                    if self.current_sector in ALL_SECTORS:
+                        spawn_sector = self.current_sector
                 else:
                     cur = con.cursor()
                     my_sectors = [x[0] for x in cur.execute('SELECT sector FROM claims WHERE owner = ?', (self.name,)).fetchall()]
@@ -773,6 +806,8 @@ def apply_script(protocol, connection, config):
             sx, sy = coordinates(spawn_sector)
             sx += random.choice(range(64))
             sy += random.choice(range(64))
+            sx = min(510, max(sx, 1))
+            sy = min(510, max(sy, 1))
             sz = self.protocol.map.get_z(sx, sy)
             return (sx, sy, sz)
 
