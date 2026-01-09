@@ -51,9 +51,9 @@ def register(connection, password, password_repeat):
     cur = con.cursor()
     is_not_empty = cur.execute('SELECT EXISTS (SELECT 1 FROM users)').fetchone()[0]
     if is_not_empty:
-        cur.execute('INSERT INTO users VALUES(?, ?, ?, ?, ?)', (connection.name, hashstr(password), 'player', datetime.now().isoformat(sep=' ')[:16], connection.session))
+        cur.execute('INSERT INTO users VALUES(?, ?, ?, ?, ?, ?)', (connection.name, hashstr(password), 'player', datetime.now().isoformat(sep=' ')[:16], connection.session, ''))
     else:
-        cur.execute('INSERT INTO users VALUES(?, ?, ?, ?, ?)', (connection.name, hashstr(password), 'admin', datetime.now().isoformat(sep=' ')[:16], connection.session))
+        cur.execute('INSERT INTO users VALUES(?, ?, ?, ?, ?, ?)', (connection.name, hashstr(password), 'admin', datetime.now().isoformat(sep=' ')[:16], connection.session, ''))
     con.commit()
     cur.close()
     connection.protocol.notify_admins("%s registered successfully" % connection.name)
